@@ -579,7 +579,7 @@ static bool setup_stack_2(void** esp, char* cmd_line) {
         /* Keep 2 stack pointers. 
           sp = (bottom) points to the address of the string's bytes copied on user stack
           sp_2 = (top) points to where the actual bytes of the argument is written to */
-        char* sp_2 = sp + padding;
+        char* sp_2 = sp + padding + (argc+1)*sizeof(char *);
         for (int i = 0; i < argc; i++) {
           strlcpy((char *) sp_2, argv[i], strlen(argv[i])+1);
           *((char **) sp) = sp_2;
