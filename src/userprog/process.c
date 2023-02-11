@@ -260,6 +260,7 @@ struct Elf32_Phdr {
 #define PF_R 4 /* Readable. */
 
 static bool setup_stack(void** esp);
+static bool setup_stack_2(void** esp, char* file_name);
 static bool validate_segment(const struct Elf32_Phdr*, struct file*);
 static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t read_bytes,
                          uint32_t zero_bytes, bool writable);
@@ -282,12 +283,22 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
     goto done;
   process_activate();
 
+  int n = strlen(file_name);
+  char* copy = (char *) malloc(sizeof(char)*(n+1));
+  strlcpy(copy, file_name, n+1);
+  char* rest;
+
+  char* executable_name = strtok_r(copy, " ", &rest);
+
   /* Open executable file. */
-  file = filesys_open(file_name);
+  // file = filesys_open(file_name);
+  file = filesys_open(executable_name);
   if (file == NULL) {
     printf("load: %s: open failed\n", file_name);
     goto done;
   }
+
+  free(copy);
 
   /* Read and verify executable header. */
   if (file_read(file, &ehdr, sizeof ehdr) != sizeof ehdr ||
@@ -348,7 +359,7 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
   }
 
   /* Set up stack. */
-  if (!setup_stack(esp))
+  if (!setup_stack_2(esp, file_name))   // need to check for loading file_name, when the cmd line string contains arguments
     goto done;
 
   /* Start address. */
@@ -476,6 +487,120 @@ static bool setup_stack(void** esp) {
       *esp = PHYS_BASE;
     else
       palloc_free_page(kpage);
+  }
+  return success;
+}
+
+/* My function */
+static bool setup_stack_2(void** esp, char* cmd_line) {
+
+  int argc = 1;
+  size_t len = strlen(cmd_line);
+
+  /* First, scan through the string to get the number of argumetns: argc */
+  for (int i = 0; i < len; i++) {
+    if (cmd_line[i] == ' ') {
+        argc += 1;
+      }
+  }
+
+  char* argv[argc];
+
+  /* Since strtok_r() makes modification to the given string, 
+    make a copy of string as an array of characters. */
+  char input_str[strlen(cmd_line)+1];
+  strlcpy(input_str, cmd_line, strlen(cmd_line)+1);
+  char* rest;
+
+  /* Total number of bytes of argument string: (each word) + '\0' */
+  int total_bytes = 0;
+
+  /* Using strtok_r() function to break the command line input string into words.*/
+  char * token = strtok_r(input_str, " ", &rest);
+  int i = 0;
+  while (token != NULL) {
+      argv[i++] = token;
+      total_bytes += strlen(token) + 1;
+      token = strtok_r(rest, " ", &rest);
+  }
+  
+  /* Example of stack setup for the _start function: cmd = "/bin/ls -l foo bar" 
+  "bar\0"           <--- PHYS_BASE
+  "foo\0"
+  "-l\0"
+  "/bin/ls\0"
+  (...
+      padding
+   ...)
+  argv[4] = NULL
+  argv[3] = &("bar\0") 
+  argv[2] = &("foo\0") 
+  argv[1] = &("-l\0") 
+  argv[0] = &("/bin/ls\0") 
+  argv = &(argv[0])
+  argc               <--- (16 byte allign) 
+  (fake rip)
+
+  Therefore, need decrement initial esp by: 
+    (the actual strings)  (each argv[i] + NULL)  (arv + argc)
+          
+  which must be 16 byte allign. And then finally, decrement by 4 byte for "fake return address"
+  */
+
+  /* Accounts for the actual args strings + argv[i] + NULL ptr + argc, argv */
+  char* init_esp = PHYS_BASE;
+  init_esp -= (total_bytes + (argc+1)*sizeof(char *) + sizeof(int) + sizeof(char **));
+
+  int padding = 0;
+  while ( ((unsigned int)(init_esp - padding)) % 16 != 0) {
+    padding++;
+  }
+
+  init_esp -= padding;
+
+
+  uint8_t* kpage;
+  bool success = false;
+
+  kpage = palloc_get_page(PAL_USER | PAL_ZERO);
+  if (kpage != NULL) {
+    success = install_page(((uint8_t*)PHYS_BASE) - PGSIZE, kpage, true);
+    if (success) {
+        // Issue: Kernel panic, when trying to write data to setup user stack
+        // without the following, passes do-nothing and stack-align-0 tests
+        char* sp = (char *)init_esp;
+        int test = *sp;
+
+        *((int *) sp) = argc;
+        sp += 4;
+        *((char ***) sp) = ((char **) sp) + 1;
+        sp += 4;
+
+        /* Keep 2 stack pointers. 
+          sp = (bottom) points to the address of the string's bytes copied on user stack
+          sp_2 = (top) points to where the actual bytes of the argument is written to */
+        char* sp_2 = sp + padding;
+        for (int i = 0; i < argc; i++) {
+          strlcpy((char *) sp_2, argv[i], strlen(argv[i])+1);
+          *((char **) sp) = sp_2;
+
+          sp += 4;
+          sp_2 += strlen(argv[i]) + 1;
+        }
+        
+        *((char **) sp) = NULL;
+        
+
+        // fake rip
+        init_esp -= 4;
+
+
+      //*esp = PHYS_BASE;
+      *esp = init_esp;
+    }
+    else {
+      palloc_free_page(kpage);
+    }
   }
   return success;
 }
