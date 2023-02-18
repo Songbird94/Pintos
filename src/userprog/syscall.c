@@ -1,12 +1,15 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
 #include <syscall-nr.h>
+#include "devices/shutdown.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "threads/vaddr.h"
 #include "userprog/process.h"
+#include "userprog/pagedir.h"
 
 static void syscall_handler(struct intr_frame*);
-static void validate_syscall_arg(uint32_t *args UNUSED, int args_count);
+static int validate_syscall_arg(uint32_t *args UNUSED, int args_count);
 static void syscall_halt(uint32_t *args UNUSED, uint32_t *eax UNUSED);
 static void syscall_exit(uint32_t *args UNUSED, uint32_t *eax UNUSED);
 static void syscall_exec(uint32_t *args UNUSED, uint32_t *eax UNUSED);
@@ -39,11 +42,12 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       break;
     case SYS_WAIT:
       syscall_wait(args,eax);
+      break;
     case SYS_PRACTICE:
       syscall_practice(args,eax);
       break;
     default:
-      sys_exit(args,eax);
+      syscall_exit(args,eax);
   }
 }
 
@@ -66,7 +70,7 @@ static int validate_syscall_arg(uint32_t *args UNUSED, int args_count){
       is_valid = 0;
       break;
     }
-    if (pagedir_get_page(thread_current()->pcb->pagedir,(void*)args) == NULL){
+    if (!pagedir_get_page(thread_current()->pcb->pagedir,(void*)args)){
       // whether the pointer is unmapped in page table. 
       is_valid = 0;
       break;
@@ -79,8 +83,8 @@ static void syscall_halt(uint32_t *args UNUSED, uint32_t *eax UNUSED){
   shutdown_power_off();
 }
 
-static void sys_exit (uint32_t *args UNUSED, uint32_t *eax UNUSED){
-  eax = args[1];
+static void syscall_exit (uint32_t *args UNUSED, uint32_t *eax UNUSED){
+  *eax = args[1];
   printf("%s: exit(%d)\n", thread_current()->pcb->process_name, args[1]);
   process_exit();
 }
@@ -93,9 +97,9 @@ static void syscall_wait(uint32_t *args UNUSED, uint32_t *eax UNUSED){
 
 static void syscall_practice(uint32_t *args UNUSED, uint32_t *eax UNUSED){
   if (!validate_syscall_arg(args,1)){
-    sys_exit(args,eax);
+    syscall_exit(args,eax);
   }
   int i = (int)args[1];
-  eax = i + 1;
+  *eax = i + 1;
 }
 
