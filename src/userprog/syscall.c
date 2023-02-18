@@ -66,7 +66,7 @@ static int validate_syscall_arg(uint32_t *args UNUSED, int args_count){
       is_valid = 0;
       break;
     }
-    if (pagedir_get_page(thread_current()->pcb->pagedir,args) == NULL){
+    if (pagedir_get_page(thread_current()->pcb->pagedir,(void*)args) == NULL){
       // whether the pointer is unmapped in page table. 
       is_valid = 0;
       break;
