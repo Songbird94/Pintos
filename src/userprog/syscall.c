@@ -29,6 +29,11 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
    * include it in your final submission.
    */
 
+  if (args[0] == SYS_EXIT) {
+    f->eax = args[1];
+    printf("%s: exit(%d)\n", thread_current()->pcb->process_name, args[1]);
+    process_exit();
+  }
   /* printf("System call number: %d\n", args[0]); */
   switch(syscall_num){
     case SYS_HALT:
@@ -84,12 +89,17 @@ static void syscall_halt(uint32_t *args UNUSED, uint32_t *eax UNUSED){
 }
 
 static void syscall_exit (uint32_t *args UNUSED, uint32_t *eax UNUSED){
-  *eax = args[1];
+  *eax = (int)args[1];
   printf("%s: exit(%d)\n", thread_current()->pcb->process_name, args[1]);
   process_exit();
 }
 
 static void syscall_exec(uint32_t *args UNUSED, uint32_t *eax UNUSED){
+  if (!validate_syscall_arg(args,1)){
+    syscall_exit(args,eax);
+  }
+  char* file_name = (char*) args[1];
+  *eax = process_execute(file_name);
 }
 
 static void syscall_wait(uint32_t *args UNUSED, uint32_t *eax UNUSED){
