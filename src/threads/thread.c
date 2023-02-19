@@ -7,6 +7,7 @@
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
+#include "threads/malloc.h"
 #include "threads/palloc.h"
 #include "threads/switch.h"
 #include "threads/synch.h"
@@ -115,6 +116,8 @@ void thread_init(void) {
   init_thread(initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid();
+  list_init(&(initial_thread->lst));
+  sema_init(&(initial_thread->sema),0);
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -186,10 +189,19 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
   t = palloc_get_page(PAL_ZERO);
   if (t == NULL)
     return TID_ERROR;
-
+  
+  struct thread* cur = thread_current();
   /* Initialize thread. */
   init_thread(t, name, priority);
   tid = t->tid = allocate_tid();
+  t->self = (struct child*)malloc(sizeof(struct child));
+  t->self->pid = tid;
+  t->self->parent = cur;
+  t->self->ref_count = 2;
+  list_init(&(t->lst));
+  lock_init(&(t->self->ref_count_lock));
+  sema_init(&(t->self->sema), 0);
+  list_push_back(&(thread_current()->lst), &(t->self->elem));
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame(t, sizeof *kf);
