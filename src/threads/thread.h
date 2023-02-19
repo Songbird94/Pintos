@@ -98,7 +98,7 @@ struct thread {
   struct process* pcb; /* Process control block if this thread is a userprog */
   struct list lst;            /* the list containing all the subordinate child */
   struct child* self;          /* the child struct information of the process itself */
-  struct semaphore sema;
+  struct semaphore sema;      /* Parent semaphore*/
 #endif
 
   /* Owned by thread.c. */
