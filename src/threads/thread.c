@@ -187,7 +187,14 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
   if (t == NULL)
     return TID_ERROR;
 
-  /* Initialize thread. */
+  /* Initialize thread. The thread's name is assigned to <name>. 
+  But <name> contains the command line arguments, so need to parse it.
+  The input argument for function=start_process is passed via AUX,
+  so the original full command line string is passed into start_process. */
+
+  char* rest; 
+  name = strtok_r(name, " ", &rest);    // name string will be modified
+
   init_thread(t, name, priority);
   tid = t->tid = allocate_tid();
 

@@ -46,6 +46,14 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     case SYS_PRACTICE:
       syscall_practice(args,&f->eax);
       break;
+
+    // file stuff
+    case SYS_WRITE:
+      if (args[1] == 1) {
+        putbuf((char *) args[2], args[3]);
+      }
+      break;
+
     default:
       syscall_exit(args,&f->eax);
   }
