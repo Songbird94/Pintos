@@ -56,8 +56,7 @@ void userprog_init(void) {
 pid_t process_execute(const char* file_name) {
   char* fn_copy;
   tid_t tid;
-
-  sema_init(&temporary, 0);
+  sema_init(&temporary,0);
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page(0);
@@ -67,6 +66,7 @@ pid_t process_execute(const char* file_name) {
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
+  sema_down (&(thread_current()->sema)); 
   if (tid == TID_ERROR)
     palloc_free_page(fn_copy);
   return tid;
@@ -77,6 +77,7 @@ pid_t process_execute(const char* file_name) {
 static void start_process(void* file_name_) {
   char* file_name = (char*)file_name_;
   struct thread* t = thread_current();
+  struct semaphore sema = t->self->parent->sema;
   struct intr_frame if_;
   bool success, pcb_success;
 
@@ -118,10 +119,10 @@ static void start_process(void* file_name_) {
   /* Clean up. Exit on failure or jump to userspace */
   palloc_free_page(file_name);
   if (!success) {
-    sema_up(&temporary);
+    sema_up(&sema);
     thread_exit();
   }
-
+  sema_up(&sema);
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -264,10 +265,53 @@ struct Elf32_Phdr {
 #define PF_W 2 /* Writable. */
 #define PF_R 4 /* Readable. */
 
-static bool setup_stack(void** esp);
+static bool setup_stack(int argc, char** argv, int total_bytes, void** esp);
 static bool validate_segment(const struct Elf32_Phdr*, struct file*);
 static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t read_bytes,
                          uint32_t zero_bytes, bool writable);
+
+/* Parses the command line input string into tokens using strtok_r. 
+   Returns argv array of arguments, argv[0] = executable filename,
+   argv[argc] = NULL. Assigns num_args to argc. */
+char** parse_cmd(char* cmdline, int* num_args, int* num_bytes) {
+  int argc = 1;
+  size_t len = strlen(cmdline);
+
+  /* First, scan through the string to get the number of argumetns: argc */
+  for (int i = 0; i < len; i++) {
+    if (cmdline[i] == ' ') {
+        argc += 1;
+      }
+  }
+  *num_args = argc;
+
+  /* argv: array of argument strings (char *), argv[argc] = NULL pointer. */
+  char** argv = (char **) malloc(argc + 1);
+  if (argv == NULL) {
+    printf("Malloc failed\n");
+  }
+
+  /* Since strtok_r() makes modification to the given string, make a copy. */
+  char* input_str = (char *) malloc(len + 1);
+  strlcpy(input_str, cmdline, len+1);
+  char* rest;
+
+  /* Total number of bytes of argument string: (each word) + '\0' */
+  int total_bytes = 0;
+
+  /* Using strtok_r() function to break the command line input string into words.*/
+  char * token = strtok_r(input_str, " ", &rest);
+  int i = 0;
+  while (token != NULL) {
+      argv[i++] = token;
+      total_bytes += strlen(token) + 1;
+      token = strtok_r(NULL, " ", &rest);
+  }
+  argv[argc] = NULL;
+  *num_bytes = total_bytes;
+
+  return argv;
+}
 
 /* Loads an ELF executable from FILE_NAME into the current thread.
    Stores the executable's entry point into *EIP
@@ -287,8 +331,13 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
     goto done;
   process_activate();
 
+  /* Parse commandline input string into argv vector, where argv[0] = executable name. 
+     Writes argc = number of arguments, total_bytes = total bytes of each argument string + \0 */
+  int argc, total_bytes;
+  char** argv = parse_cmd(file_name, &argc, &total_bytes);
+
   /* Open executable file. */
-  file = filesys_open(file_name);
+  file = filesys_open(argv[0]);
   if (file == NULL) {
     printf("load: %s: open failed\n", file_name);
     goto done;
@@ -352,8 +401,8 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
     }
   }
 
-  /* Set up stack. */
-  if (!setup_stack(esp))
+  /* Set up user stack: push command line arguments and set initial esp register value. */
+  if (!setup_stack(argc, argv, total_bytes, esp))   
     goto done;
 
   /* Start address. */
@@ -468,19 +517,99 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t 
   return true;
 }
 
+/* Pushes command line arguments onto the stack and returns final location of initail esp. */
+void* push_args(int argc, char** argv, int total_bytes) {
+  
+  char* init_esp = PHYS_BASE;
+  /* Accounts for the actual bytes of args strings + argv[i] + NULL ptr + argv + argc */
+  init_esp -= (total_bytes + (argc+1)*sizeof(char *) + sizeof(int) + sizeof(char **));
+
+  /* Searches for number of bytes for padding. */
+  int padding = 0;
+  while ( ((unsigned int)(init_esp - padding)) % 16 != 0) {
+    padding++;
+  }
+  /* init_esp is at bottom of the user stack (final position) */
+  init_esp -= padding;
+  
+  /* this pointer is used to push args onto the stack*/
+  char* sp = (char *)init_esp;
+
+  /* Pushes argc and argv = addres of beginning of the array of char* to the actual arg string bytes */
+  *((int *) sp) = argc;
+  sp += 4;
+  *((char ***) sp) = ((char **) sp) + 1;
+  sp += 4;
+
+  /* Copies the actual bytes of each arg string onto user stack, and simultanously storinf the pointer to strings
+  Keep 2 stack pointers:
+  sp = (bottom) points to the address of the string's bytes copied on user stack
+  sp_2 = (top) points to where the actual bytes of the argument is written to */
+  char* sp_2 = sp + padding + (argc+1)*sizeof(char *);
+  for (int i = 0; i < argc; i++) {
+    /* Copies the args string from argv array in kernel memory onto user stack,
+    and stores the address of those strings onto the user stacka as user's argv */
+    strlcpy((char *) sp_2, argv[i], strlen(argv[i])+1);
+    *((char **) sp) = sp_2;
+
+    /* Increment the bottom sp by 4 bytes (go to next pointer)
+    Increment top sp_2 by number of bytes of the copied string */
+    sp += 4;
+    sp_2 += strlen(argv[i]) + 1;
+  }
+
+  /* Last entry of the argv vector is a NULL pointer */
+  *((char **) sp) = NULL;
+  
+  // fake rip
+  init_esp -= 4;
+  return init_esp;
+}
+
+
 /* Create a minimal stack by mapping a zeroed page at the top of
-   user virtual memory. */
-static bool setup_stack(void** esp) {
+   user virtual memory. 
+   Added: push argument onto user stack. */
+static bool setup_stack(int argc, char** argv, int total_bytes, void** esp) {
+  
+  /* Example of stack setup for the _start function: cmd = "/bin/ls -l foo bar" 
+  "bar\0"           <--- PHYS_BASE
+  "foo\0"
+  "-l\0"
+  "/bin/ls\0"
+  (...
+      padding
+   ...)
+  argv[4] = NULL
+  argv[3] = &("bar\0") 
+  argv[2] = &("foo\0") 
+  argv[1] = &("-l\0") 
+  argv[0] = &("/bin/ls\0") 
+  argv = &(argv[0])
+  argc               <--- (16 byte allign) 
+  (fake rip)
+
+  Therefore, need decrement initial esp by: 
+    (the actual strings)  (each argv[i] + NULL)  (arv + argc)
+          
+  which must be 16 byte allign. And then finally, decrement by 4 byte for "fake return address"
+  */
+
   uint8_t* kpage;
   bool success = false;
 
   kpage = palloc_get_page(PAL_USER | PAL_ZERO);
   if (kpage != NULL) {
     success = install_page(((uint8_t*)PHYS_BASE) - PGSIZE, kpage, true);
-    if (success)
-      *esp = PHYS_BASE;
-    else
+    if (success) {
+
+      void* init_esp = push_args(argc, argv, total_bytes);
+
+      *esp = init_esp;
+    }
+    else {
       palloc_free_page(kpage);
+    }
   }
   return success;
 }
