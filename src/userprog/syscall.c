@@ -20,7 +20,6 @@ void syscall_init(void) { intr_register_int(0x30, 3, INTR_ON, syscall_handler, "
 
 static void syscall_handler(struct intr_frame* f UNUSED) {
   uint32_t* args = ((uint32_t*)f->esp);
-  uint32_t* eax = ((uint32_t*)f->eax);
   uint32_t syscall_num = args[0];
   /*
    * The following print statement, if uncommented, will print out the syscall
@@ -32,22 +31,22 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   /* printf("System call number: %d\n", args[0]); */
   switch(syscall_num){
     case SYS_HALT:
-      syscall_halt(args,eax);
+      syscall_halt(args,&f->eax);
       break;
     case SYS_EXIT:
-      syscall_exit(args,eax);
+      syscall_exit(args,&f->eax);
       break;
     case SYS_EXEC:
-      syscall_exec(args,eax);
+      syscall_exec(args,&f->eax);
       break;
     case SYS_WAIT:
-      syscall_wait(args,eax);
+      syscall_wait(args,&f->eax);
       break;
     case SYS_PRACTICE:
-      syscall_practice(args,eax);
+      syscall_practice(args,&f->eax);
       break;
     default:
-      syscall_exit(args,eax);
+      syscall_exit(args,&f->eax);
   }
 }
 
@@ -84,17 +83,12 @@ static void syscall_halt(uint32_t *args UNUSED, uint32_t *eax UNUSED){
 }
 
 static void syscall_exit (uint32_t *args UNUSED, uint32_t *eax UNUSED){
-  *eax = (int)args[1];
+  *eax = args[1];
   printf("%s: exit(%d)\n", thread_current()->pcb->process_name, args[1]);
   process_exit();
 }
 
 static void syscall_exec(uint32_t *args UNUSED, uint32_t *eax UNUSED){
-  if (!validate_syscall_arg(args,1)){
-    syscall_exit(args,eax);
-  }
-  char* file_name = (char*) args[1];
-  *eax = process_execute(file_name);
 }
 
 static void syscall_wait(uint32_t *args UNUSED, uint32_t *eax UNUSED){
@@ -107,4 +101,3 @@ static void syscall_practice(uint32_t *args UNUSED, uint32_t *eax UNUSED){
   int i = (int)args[1];
   *eax = i + 1;
 }
-
