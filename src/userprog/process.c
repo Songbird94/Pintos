@@ -33,6 +33,9 @@ bool setup_thread(void (**eip)(void), void** esp);
 void userprog_init(void) {
   struct thread* t = thread_current();
   bool success;
+  
+  list_init(&file_desc_entry_table); /* Need to initialize the Pintos list representing the file table. Added by Jimmy.*/
+  next_available_fd = 2; /* Added by Jimmy. fd 0 and 1 are reserved for STDIN an STDOUT respectively.  */
 
   /* Allocate process control block
      It is imoprtant that this is a call to calloc and not malloc,
@@ -153,6 +156,8 @@ void process_exit(void) {
     thread_exit();
     NOT_REACHED();
   }
+
+  free(&file_desc_entry_table); // Added by Jimmy. Exiting a process should free the entire file descriptor table. May need to add a function to free every entry.
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
