@@ -21,7 +21,7 @@ typedef void (*stub_fun)(pthread_fun, void*);
  * Added by Jimmy.*/
 struct file_desc_entry {
   int fd;
-  char *file_name;
+  const char *file_name;
   struct file* fptr;
   struct list_elem elem;
 };
