@@ -46,6 +46,7 @@ void close (int fd);
 struct lock file_global_lock; /* Global file lock. Added by Jimmy. */
 
 /* Helper function for finding entries in the process file descriptor table by their file descriptor number.
+   Returns NULL if no file with the specified fd is found.
    Added by Jimmy. */
 struct file_desc_entry *find_entry_by_fd(int fd) {
   struct list *table = &thread_current()->pcb->file_desc_entry_list;

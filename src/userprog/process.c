@@ -43,7 +43,7 @@ void userprog_init(void) {
   success = t->pcb != NULL;
 
   list_init(&t->pcb->file_desc_entry_list); /* Need to initialize the Pintos list representing the file table. Added by Jimmy.*/
-  t->pcb->next_available_fd = 2; /* Added by Jimmy. fd 0 and 1 are reserved for STDIN an STDOUT respectively.  */
+  t->pcb->next_available_fd = 2; /* Added by Jimmy. fds 0 and 1 are reserved for STDIN an STDOUT respectively.  */
   struct file_desc_entry pintos_stdin = {0, "stdin", NULL, {NULL, NULL}};
   struct file_desc_entry pintos_stdout = {1, "stdout", NULL, {NULL, NULL}};
   list_push_back(&t->pcb->file_desc_entry_list, &pintos_stdin.elem);
