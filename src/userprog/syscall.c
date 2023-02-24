@@ -66,7 +66,7 @@ struct file_desc_entry *find_entry_by_fd(int fd) {
 static void find_next_available_fd() {
   struct list *table = &thread_current()->pcb->file_desc_entry_list;
   struct list_elem *e;
-  int current = 0;
+  int current = 2;
   for (e = list_begin(table); e != list_end(table); e = list_next(e)) {
     struct file_desc_entry *f = list_entry(e, struct file_desc_entry, elem);
     if (f->fd > current) {

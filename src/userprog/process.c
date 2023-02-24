@@ -33,9 +33,6 @@ bool setup_thread(void (**eip)(void), void** esp);
 void userprog_init(void) {
   struct thread* t = thread_current();
   bool success;
-  
-  list_init(&t->pcb->file_desc_entry_list); /* Need to initialize the Pintos list representing the file table. Added by Jimmy.*/
-  t->pcb->next_available_fd = 2; /* Added by Jimmy. fd 0 and 1 are reserved for STDIN an STDOUT respectively.  */
 
   /* Allocate process control block
      It is imoprtant that this is a call to calloc and not malloc,
@@ -44,6 +41,14 @@ void userprog_init(void) {
      can come at any time and activate our pagedir */
   t->pcb = calloc(sizeof(struct process), 1);
   success = t->pcb != NULL;
+
+  list_init(&t->pcb->file_desc_entry_list); /* Need to initialize the Pintos list representing the file table. Added by Jimmy.*/
+  t->pcb->next_available_fd = 2; /* Added by Jimmy. fd 0 and 1 are reserved for STDIN an STDOUT respectively.  */
+  struct file_desc_entry pintos_stdin = {0, "stdin", NULL, {NULL, NULL}};
+  struct file_desc_entry pintos_stdout = {1, "stdout", NULL, {NULL, NULL}};
+  list_push_back(&t->pcb->file_desc_entry_list, &pintos_stdin.elem);
+  list_push_back(&t->pcb->file_desc_entry_list, &pintos_stdout.elem);
+
 
   /* Kill the kernel if we did not succeed */
   ASSERT(success);
@@ -279,21 +284,21 @@ char** parse_cmd(char* cmdline, int* num_args, int* num_bytes) {
 
   /* First, scan through the string to get the number of argumetns: argc */
   for (int i = 0; i < len; i++) {
-    if (cmdline[i] == ' ') {
+    if (cmdline[i] == ' ' && (i == len-1 || cmdline[i+1] != ' ')) {
         argc += 1;
       }
   }
   *num_args = argc;
 
   /* argv: array of argument strings (char *), argv[argc] = NULL pointer. */
-  char** argv = (char **) malloc(argc + 1);
+  char** argv = (char **) malloc(sizeof(char*) * (argc + 1));
   if (argv == NULL) {
     printf("Malloc failed\n");
   }
 
   /* Since strtok_r() makes modification to the given string, make a copy. */
-  char* input_str = (char *) malloc(len + 1);
-  strlcpy(input_str, cmdline, len+1);
+  char input_str[len + 1];
+  strlcpy(input_str, cmdline, len + 1);
   char* rest;
 
   /* Total number of bytes of argument string: (each word) + '\0' */
@@ -302,12 +307,24 @@ char** parse_cmd(char* cmdline, int* num_args, int* num_bytes) {
   /* Using strtok_r() function to break the command line input string into words.*/
   char * token = strtok_r(input_str, " ", &rest);
   int i = 0;
+  size_t n;
+  char* tok_str;
   while (token != NULL) {
-      argv[i++] = token;
-      total_bytes += strlen(token) + 1;
-      token = strtok_r(NULL, " ", &rest);
+    /* Allocate memory for the argument token string, copy the token into that memory,
+       and store the address of that memory into argv[i] */
+    n = strlen(token);
+    tok_str = (char *) malloc(n + 1);
+    if (tok_str == NULL) {
+      printf("Malloc failed\n");
+    }
+    strlcpy(tok_str, token, n + 1);
+    argv[i++] = tok_str;
+    total_bytes += n + 1;
+    token = strtok_r(NULL, " ", &rest);
   }
   argv[argc] = NULL;
+
+  /* Write the total number of bytes of the argument strings into num_bytes*/
   *num_bytes = total_bytes;
 
   return argv;
@@ -560,10 +577,22 @@ void* push_args(int argc, char** argv, int total_bytes) {
 
   /* Last entry of the argv vector is a NULL pointer */
   *((char **) sp) = NULL;
+
+  /* After pushing each argument string onto the user stack, we can free the memory
+  allocated to store these arg strings and the argv vector itself. */
+  free_args(argc, argv);
   
   // fake rip
   init_esp -= 4;
   return init_esp;
+}
+
+/* Since each string argv[i] has been malloc-ed memory, need to free it*/
+void free_args(int argc, char** argv) {
+  for (int i = 0; i < argc; i++) {
+    free(argv[i]);
+  }
+  free(argv);
 }
 
 
