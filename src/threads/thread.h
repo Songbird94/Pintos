@@ -100,7 +100,23 @@ struct thread {
 
   /* Owned by thread.c. */
   unsigned magic; /* Detects stack overflow. */
+
+    struct list childs_status_lst;               /* A list of childs */
+    struct semaphore child_sema;      /* Semaphore for parent waiting for child */
+    struct child_status * self;              /* Store the child_status struct of the thread */
+    struct thread* parent;            /* Parent thread of the thread */
+    int exit;                         /* Exit status */
+    bool execution;                   /* Execution status */
 };
+
+struct child_status
+  {
+    tid_t tid;                           /* tid of the child thread */
+    struct list_elem elem;         /* list of children */
+    struct semaphore wait_sema;          /* semaphore for waiting */
+    int exit;                            /* the exit code of child thread */
+    bool success;                        /* Execution status of child thread*/
+  };
 
 /* Types of scheduler that the user can request the kernel
  * use to schedule threads at runtime. */
