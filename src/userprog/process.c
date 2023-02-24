@@ -61,7 +61,6 @@ void userprog_init(void) {
 pid_t process_execute(const char* file_name) {
   char* fn_copy;
   tid_t tid;
-  sema_init(&temporary,0);
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page(0);
@@ -71,9 +70,10 @@ pid_t process_execute(const char* file_name) {
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
-  sema_down (&(thread_current()->sema)); 
   if (tid == TID_ERROR)
     palloc_free_page(fn_copy);
+  
+  sema_down(&thread_current()->child_sema);
   return tid;
 }
 
@@ -82,7 +82,6 @@ pid_t process_execute(const char* file_name) {
 static void start_process(void* file_name_) {
   char* file_name = (char*)file_name_;
   struct thread* t = thread_current();
-  struct semaphore sema = t->self->parent->sema;
   struct intr_frame if_;
   bool success, pcb_success;
 
@@ -124,10 +123,12 @@ static void start_process(void* file_name_) {
   /* Clean up. Exit on failure or jump to userspace */
   palloc_free_page(file_name);
   if (!success) {
-    sema_up(&sema);
+    thread_current()->parent->execution = false;
+    sema_up(&thread_current()->parent->child_sema);
     thread_exit();
   }
-  sema_up(&sema);
+  thread_current()->parent->execution = true;
+  sema_up(&thread_current()->parent->child_sema);
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -148,8 +149,25 @@ static void start_process(void* file_name_) {
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int process_wait(pid_t child_pid UNUSED) {
-  sema_down(&temporary);
-  return 0;
+  struct list_elem *start = list_begin(&thread_current()->childs_status_lst);
+  struct child_status *c;
+  while(start != list_end(&thread_current()->childs_status_lst)){
+    c = list_entry(start, struct child_status, elem);
+    if((c->tid == child_pid) && (!c->success)){
+        c->success = true;
+        sema_down (&c->wait_sema);
+        break;
+    }
+    if (c->tid == child_pid){
+      return -1;
+    }
+    start = list_next(start);
+  }
+  if (start == list_end (&thread_current()->childs_status_lst)) {
+    return -1;
+  }
+  list_remove(start);
+  return c->exit;
 }
 
 /* Free the current process's resources. */
@@ -162,6 +180,7 @@ void process_exit(void) {
     thread_exit();
     NOT_REACHED();
   }
+  thread_exit();
 
   free(&cur->pcb->file_desc_entry_list); // Added by Jimmy. Exiting a process should free the entire file descriptor table. May need to add a function to free every entry.
 
@@ -189,7 +208,6 @@ void process_exit(void) {
   cur->pcb = NULL;
   free(pcb_to_free);
 
-  sema_up(&temporary);
   thread_exit();
 }
 

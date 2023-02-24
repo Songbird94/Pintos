@@ -96,27 +96,27 @@ struct thread {
 #ifdef USERPROG
   /* Owned by process.c. */
   struct process* pcb; /* Process control block if this thread is a userprog */
-  struct list lst;            /* the list containing all the subordinate child */
-  struct child* self;          /* the child struct information of the process itself */
-  struct semaphore sema;      /* Parent semaphore*/
 #endif
 
   /* Owned by thread.c. */
   unsigned magic; /* Detects stack overflow. */
+
+    struct list childs_status_lst;               /* A list of childs */
+    struct semaphore child_sema;      /* Semaphore for parent waiting for child */
+    struct child_status * self;              /* Store the child_status struct of the thread */
+    struct thread* parent;            /* Parent thread of the thread */
+    int exit;                         /* Exit status */
+    bool execution;                   /* Execution status */
 };
 
-/*
-   Shared data structure containing semaphore, exit code, and 
-   a reference count between parent and child for wait. */
-struct child {
-   tid_t pid;                    /* Process Id */
-   struct thread* parent;
-   struct semaphore sema;        /* Semaphore as a lock */
-   int ref_count;                /* Reference count for freeing the struct */
-   struct lock ref_count_lock;   /* Lock to lock the reference count */
-   int status;                   /* Exit code of the child */
-   struct list_elem elem;        /* list_elem that connects to list in parent process */
-};
+struct child_status
+  {
+    tid_t tid;                           /* tid of the child thread */
+    struct list_elem elem;         /* list of children */
+    struct semaphore wait_sema;          /* semaphore for waiting */
+    int exit;                            /* the exit code of child thread */
+    bool success;                        /* Execution status of child thread*/
+  };
 
 /* Types of scheduler that the user can request the kernel
  * use to schedule threads at runtime. */
