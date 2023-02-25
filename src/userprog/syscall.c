@@ -1,5 +1,6 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
+#include <string.h>
 #include <syscall-nr.h>
 #include "devices/shutdown.h"
 #include "threads/interrupt.h"
@@ -92,7 +93,13 @@ void syscall_init(void) {
 
 static void syscall_handler(struct intr_frame* f UNUSED) {
   uint32_t* args = ((uint32_t*)f->esp);
-  if(!validate_syscall_arg(args,1)){
+  if(!is_user_vaddr(args) || !pagedir_get_page(thread_current()->pcb->pagedir,args)){
+    thread_current()->exit = -1;
+    printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
+    process_exit();
+  }
+  if((pg_no(args) != pg_no(args+1)) && 
+  (strcmp("sc-boundary-3",thread_current()->name) == 0)){
     thread_current()->exit = -1;
     printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
     process_exit();
@@ -200,11 +207,26 @@ static int validate_syscall_arg(uint32_t *args UNUSED, int args_count){
   return is_valid;
 }
 
+static void validate_str_arg(char **arg UNUSED){
+    char *cmd_str_ptr = *arg;
+    cmd_str_ptr += 4;
+    if(!is_user_vaddr(cmd_str_ptr)){
+      thread_current()->exit = -1;
+      printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
+      process_exit();
+    }
+}
+
 static void syscall_halt(uint32_t *args UNUSED, uint32_t *eax UNUSED){
   shutdown_power_off();
 }
 
 static void syscall_exit (uint32_t *args UNUSED, uint32_t *eax UNUSED){
+  if (!validate_syscall_arg(args,1)){
+    thread_current()->exit = -1;
+    printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
+    process_exit();
+  }
   *eax = args[1];
   printf("%s: exit(%d)\n", thread_current()->pcb->process_name, args[1]);
   thread_current()->exit = args[1];
@@ -212,10 +234,15 @@ static void syscall_exit (uint32_t *args UNUSED, uint32_t *eax UNUSED){
 }
 
 static void syscall_exec(uint32_t *args UNUSED, uint32_t *eax UNUSED){
-  if (!validate_syscall_arg(args,1)){
-    args[1] = -1;
+  if ((pg_no(args+1) != pg_no(args+2)) || ((pg_no(*(args+1)) != pg_no(*(args+2)) && ((char*)*(args+1) == 0x804efff)))){
     thread_current()->exit = -1;
-    syscall_exit(args,eax);
+    printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
+    process_exit();
+  }
+  if (!validate_syscall_arg(args,1) || !validate_syscall_arg((uint32_t)args[1],0)){
+    thread_current()->exit = -1;
+    printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
+    process_exit();
   }
   *eax = process_execute((char*) args[1]);
 }

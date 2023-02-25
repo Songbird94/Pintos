@@ -70,6 +70,11 @@ pid_t process_execute(const char* file_name) {
     palloc_free_page(fn_copy);
   
   sema_down(&thread_current()->child_sema);
+
+  if (!thread_current()->execution){
+    return TID_ERROR;
+  }
+
   return tid;
 }
 
@@ -112,6 +117,7 @@ static void start_process(void* file_name_) {
     // If this happens, then an unfortuantely timed timer interrupt
     // can try to activate the pagedir, but it is now freed memory
     struct process* pcb_to_free = t->pcb;
+    printf("%s: exit(%d)\n",t->pcb->process_name , -1);
     t->pcb = NULL;
     free(pcb_to_free);
   }
@@ -120,6 +126,7 @@ static void start_process(void* file_name_) {
   palloc_free_page(file_name);
   if (!success) {
     thread_current()->parent->execution = false;
+    thread_current()->self->exit = -1;
     sema_up(&thread_current()->parent->child_sema);
     thread_exit();
   }
