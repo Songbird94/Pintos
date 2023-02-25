@@ -8,6 +8,7 @@
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
+#include "threads/malloc.h"
 #include "threads/palloc.h"
 #include "threads/switch.h"
 #include "threads/synch.h"
@@ -189,9 +190,25 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
   if (t == NULL)
     return TID_ERROR;
 
-  /* Initialize thread. */
-  init_thread(t, name, priority);
+  /* Initialize thread. The thread's name is assigned to <name>. 
+  But <name> contains the command line arguments, so need to parse it.
+  The input argument for function=start_process is passed via AUX,
+  so the original full command line string is passed into start_process. */
+
+  char* rest; 
+  size_t len = strlen(name);
+  char input_str[len + 1];
+  strlcpy(input_str, name, len + 1);
+  char* token = strtok_r(input_str, " ", &rest);    // name string will be modified
+
+  init_thread(t, token, priority);
   tid = t->tid = allocate_tid();
+
+  t->self = (struct child_status *)malloc(sizeof(struct child_status));
+  t->self->tid = tid;
+  sema_init (&t->self->wait_sema, 0);
+  list_push_back (&thread_current()->childs_status_lst, &t->self->elem);
+  t->self->success = false;
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame(t, sizeof *kf);
@@ -295,6 +312,8 @@ void thread_exit(void) {
      and schedule another process.  That process will destroy us
      when it calls thread_switch_tail(). */
   intr_disable();
+  thread_current()->self->exit = thread_current()->exit;
+  sema_up(&thread_current()->self->wait_sema);
   list_remove(&thread_current()->allelem);
   thread_current()->status = THREAD_DYING;
   schedule();
@@ -433,6 +452,14 @@ static void init_thread(struct thread* t, const char* name, int priority) {
   t->priority = priority;
   t->pcb = NULL;
   t->magic = THREAD_MAGIC;
+  if (t==initial_thread){
+    t->parent=NULL;
+  }else{
+    t->parent = thread_current();
+  }
+  list_init(&t->childs_status_lst);
+  sema_init(&t->child_sema, 0);
+  t->execution = true;
 
   old_level = intr_disable();
   list_push_back(&all_list, &t->allelem);

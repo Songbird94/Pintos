@@ -55,7 +55,6 @@ pid_t process_execute(const char* file_name) {
   char* fn_copy;
   tid_t tid;
 
-  sema_init(&temporary, 0);
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page(0);
@@ -67,6 +66,8 @@ pid_t process_execute(const char* file_name) {
   tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page(fn_copy);
+  
+  sema_down(&thread_current()->child_sema);
   return tid;
 }
 
@@ -118,10 +119,12 @@ static void start_process(void* file_name_) {
   /* Clean up. Exit on failure or jump to userspace */
   palloc_free_page(file_name);
   if (!success) {
-    sema_up(&temporary);
+    thread_current()->parent->execution = false;
+    sema_up(&thread_current()->parent->child_sema);
     thread_exit();
   }
-
+  thread_current()->parent->execution = true;
+  sema_up(&thread_current()->parent->child_sema);
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -142,8 +145,25 @@ static void start_process(void* file_name_) {
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int process_wait(pid_t child_pid UNUSED) {
-  sema_down(&temporary);
-  return 0;
+  struct list_elem *start = list_begin(&thread_current()->childs_status_lst);
+  struct child_status *c;
+  while(start != list_end(&thread_current()->childs_status_lst)){
+    c = list_entry(start, struct child_status, elem);
+    if((c->tid == child_pid) && (!c->success)){
+        c->success = true;
+        sema_down (&c->wait_sema);
+        break;
+    }
+    if (c->tid == child_pid){
+      return -1;
+    }
+    start = list_next(start);
+  }
+  if (start == list_end (&thread_current()->childs_status_lst)) {
+    return -1;
+  }
+  list_remove(start);
+  return c->exit;
 }
 
 /* Free the current process's resources. */
@@ -156,6 +176,7 @@ void process_exit(void) {
     thread_exit();
     NOT_REACHED();
   }
+  thread_exit();
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -181,7 +202,6 @@ void process_exit(void) {
   cur->pcb = NULL;
   free(pcb_to_free);
 
-  sema_up(&temporary);
   thread_exit();
 }
 
@@ -276,21 +296,21 @@ char** parse_cmd(char* cmdline, int* num_args, int* num_bytes) {
 
   /* First, scan through the string to get the number of argumetns: argc */
   for (int i = 0; i < len; i++) {
-    if (cmdline[i] == ' ') {
+    if (cmdline[i] == ' ' && (i == len-1 || cmdline[i+1] != ' ')) {
         argc += 1;
       }
   }
   *num_args = argc;
 
   /* argv: array of argument strings (char *), argv[argc] = NULL pointer. */
-  char** argv = (char **) malloc(argc + 1);
+  char** argv = (char **) malloc(sizeof(char*) * (argc + 1));
   if (argv == NULL) {
     printf("Malloc failed\n");
   }
 
   /* Since strtok_r() makes modification to the given string, make a copy. */
-  char* input_str = (char *) malloc(len + 1);
-  strlcpy(input_str, cmdline, len+1);
+  char input_str[len + 1];
+  strlcpy(input_str, cmdline, len + 1);
   char* rest;
 
   /* Total number of bytes of argument string: (each word) + '\0' */
@@ -299,12 +319,24 @@ char** parse_cmd(char* cmdline, int* num_args, int* num_bytes) {
   /* Using strtok_r() function to break the command line input string into words.*/
   char * token = strtok_r(input_str, " ", &rest);
   int i = 0;
+  size_t n;
+  char* tok_str;
   while (token != NULL) {
-      argv[i++] = token;
-      total_bytes += strlen(token) + 1;
-      token = strtok_r(NULL, " ", &rest);
+    /* Allocate memory for the argument token string, copy the token into that memory,
+       and store the address of that memory into argv[i] */
+    n = strlen(token);
+    tok_str = (char *) malloc(n + 1);
+    if (tok_str == NULL) {
+      printf("Malloc failed\n");
+    }
+    strlcpy(tok_str, token, n + 1);
+    argv[i++] = tok_str;
+    total_bytes += n + 1;
+    token = strtok_r(NULL, " ", &rest);
   }
   argv[argc] = NULL;
+
+  /* Write the total number of bytes of the argument strings into num_bytes*/
   *num_bytes = total_bytes;
 
   return argv;
@@ -557,10 +589,22 @@ void* push_args(int argc, char** argv, int total_bytes) {
 
   /* Last entry of the argv vector is a NULL pointer */
   *((char **) sp) = NULL;
+
+  /* After pushing each argument string onto the user stack, we can free the memory
+  allocated to store these arg strings and the argv vector itself. */
+  free_args(argc, argv);
   
   // fake rip
   init_esp -= 4;
   return init_esp;
+}
+
+/* Since each string argv[i] has been malloc-ed memory, need to free it*/
+void free_args(int argc, char** argv) {
+  for (int i = 0; i < argc; i++) {
+    free(argv[i]);
+  }
+  free(argv);
 }
 
 
