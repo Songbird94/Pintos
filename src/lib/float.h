@@ -19,6 +19,12 @@ static inline int fpu_pop(void) {
   return val;
 }
 
+static inline void fpu_init(void* dest, void* temp) {
+  asm volatile("fsave (%0); fninit; fsave (%1); frstor (%2)" 
+      : 
+      : "r"(temp), "r"(dest), "r"(temp));
+}
+
 int sys_sum_to_e(int);
 double sum_to_e(int);
 double abs_val(double);

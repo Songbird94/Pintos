@@ -1,5 +1,6 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
+#include <float.h>
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
@@ -27,3 +28,6 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     process_exit();
   }
 }
+
+int sys_compute_e(int n) { return sys_sum_to_e(n); }
+

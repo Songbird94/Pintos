@@ -3,6 +3,7 @@
 #include <inttypes.h>
 #include <round.h>
 #include <stdio.h>
+#include <float.h>
 #include <stdlib.h>
 #include <string.h>
 #include "userprog/gdt.h"
@@ -76,6 +77,7 @@ static void start_process(void* file_name_) {
   struct thread* t = thread_current();
   struct intr_frame if_;
   bool success, pcb_success;
+  uint32_t fpu_temp[27];
 
   /* Allocate process control block */
   struct process* new_pcb = malloc(sizeof(struct process));
@@ -96,6 +98,7 @@ static void start_process(void* file_name_) {
   /* Initialize interrupt frame and load executable. */
   if (success) {
     memset(&if_, 0, sizeof if_);
+    //fpu_init(&if_.fpu, &fpu_temp);
     if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
     if_.cs = SEL_UCSEG;
     if_.eflags = FLAG_IF | FLAG_MBS;
