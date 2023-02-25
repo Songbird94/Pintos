@@ -2,6 +2,7 @@
 #define USERPROG_PROCESS_H
 
 #include "threads/thread.h"
+#include "lib/kernel/list.h"
 #include <stdint.h>
 
 // At most 8MB can be allocated to the stack

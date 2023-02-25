@@ -20,6 +20,8 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+#include "lib/kernel/list.h"
+
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
 static thread_func start_pthread NO_RETURN;
@@ -41,9 +43,6 @@ void userprog_init(void) {
      can come at any time and activate our pagedir */
   t->pcb = calloc(sizeof(struct process), 1);
   success = t->pcb != NULL;
-
-  list_init(&t->pcb->file_desc_entry_list); /* Need to initialize the Pintos list representing the file table. Added by Jimmy.*/
-  t->pcb->next_available_fd = 2; /* Added by Jimmy. fds 0 and 1 are reserved for STDIN an STDOUT respectively.  */
 
 
   /* Kill the kernel if we did not succeed */
@@ -100,6 +99,9 @@ static void start_process(void* file_name_) {
     // Continue initializing the PCB as normal
     t->pcb->main_thread = t;
     strlcpy(t->pcb->process_name, t->name, sizeof t->name);
+
+    list_init(&t->pcb->file_desc_entry_list); /* Need to initialize the Pintos list representing the file table. Added by Jimmy.*/
+    t->pcb->next_available_fd = 2; /* Added by Jimmy. fds 0 and 1 are reserved for STDIN an STDOUT respectively.  */
   }
 
   /* Initialize interrupt frame and load executable. */

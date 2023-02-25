@@ -13,6 +13,7 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "devices/input.h"
+#include "lib/kernel/list.h"
 
 static void syscall_handler(struct intr_frame*);
 static int validate_syscall_arg(uint32_t *args UNUSED, int args_count);
@@ -361,16 +362,17 @@ static void syscall_close(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
 int sys_open(const char *file) {
   struct file_desc_entry *new_fde = malloc(sizeof(struct file_desc_entry));
   struct file *requested_file = filesys_open(file);
-  /* If filesys_open() successful, set attributes of new_fd */
-  if (requested_file == NULL) {
+  if (requested_file == NULL || new_fde == NULL) {
     return -1;
   }
+  
+  struct thread *t = thread_current();
 
-  new_fde->fd = thread_current()->pcb->next_available_fd;
+  new_fde->fd = t->pcb->next_available_fd;
   new_fde->file_name = file;
   new_fde->fptr = requested_file;
   
-  list_push_back(&thread_current()->pcb->file_desc_entry_list, &new_fde->elem);
+  list_push_back(&t->pcb->file_desc_entry_list, &new_fde->elem);
 
   // Find a way to insert in the right place even with gaps in fds.
   find_next_available_fd();
@@ -438,7 +440,6 @@ int write(int fd, const void *buffer, unsigned size) {
   int written_bytes = file_write(file, buffer, size);
   return written_bytes;
 }
-
 
 /* Changes the next byte to be read or written in open file fd to position,
    expressed in bytes from the beginning of the file. Thus, a position of 0 is the file’s start.
