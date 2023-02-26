@@ -21,6 +21,8 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+#include "lib/kernel/list.h"
+
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
 static thread_func start_pthread NO_RETURN;
@@ -43,6 +45,7 @@ void userprog_init(void) {
   t->pcb = calloc(sizeof(struct process), 1);
   success = t->pcb != NULL;
 
+
   /* Kill the kernel if we did not succeed */
   ASSERT(success);
 }
@@ -54,7 +57,6 @@ void userprog_init(void) {
 pid_t process_execute(const char* file_name) {
   char* fn_copy;
   tid_t tid;
-
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page(0);
@@ -68,6 +70,11 @@ pid_t process_execute(const char* file_name) {
     palloc_free_page(fn_copy);
   
   sema_down(&thread_current()->child_sema);
+
+  if (!thread_current()->execution){
+    return TID_ERROR;
+  }
+
   return tid;
 }
 
@@ -94,6 +101,9 @@ static void start_process(void* file_name_) {
     // Continue initializing the PCB as normal
     t->pcb->main_thread = t;
     strlcpy(t->pcb->process_name, t->name, sizeof t->name);
+
+    list_init(&t->pcb->file_desc_entry_list); /* Need to initialize the Pintos list representing the file table. Added by Jimmy.*/
+    t->pcb->next_available_fd = 2; /* Added by Jimmy. fds 0 and 1 are reserved for STDIN an STDOUT respectively.  */
   }
 
   /* Initialize interrupt frame and load executable. */
@@ -112,6 +122,7 @@ static void start_process(void* file_name_) {
     // If this happens, then an unfortuantely timed timer interrupt
     // can try to activate the pagedir, but it is now freed memory
     struct process* pcb_to_free = t->pcb;
+    printf("%s: exit(%d)\n",t->pcb->process_name , -1);
     t->pcb = NULL;
     free(pcb_to_free);
   }
@@ -120,6 +131,7 @@ static void start_process(void* file_name_) {
   palloc_free_page(file_name);
   if (!success) {
     thread_current()->parent->execution = false;
+    thread_current()->self->exit = -1;
     sema_up(&thread_current()->parent->child_sema);
     thread_exit();
   }
@@ -177,6 +189,8 @@ void process_exit(void) {
     NOT_REACHED();
   }
   thread_exit();
+
+  free(&cur->pcb->file_desc_entry_list); // Added by Jimmy. Exiting a process should free the entire file descriptor table. May need to add a function to free every entry.
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */

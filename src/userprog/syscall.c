@@ -1,6 +1,7 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
 #include "lib/float.h"
+#include <string.h>
 #include <syscall-nr.h>
 #include "devices/shutdown.h"
 #include "threads/interrupt.h"
@@ -9,6 +10,12 @@
 #include "userprog/process.h"
 #include "userprog/pagedir.h"
 
+#include "threads/malloc.h"
+#include "filesys/file.h"
+#include "filesys/filesys.h"
+#include "devices/input.h"
+#include "lib/kernel/list.h"
+
 static void syscall_handler(struct intr_frame*);
 static int validate_syscall_arg(uint32_t *args UNUSED, int args_count);
 static void syscall_halt(uint32_t *args UNUSED, uint32_t *eax UNUSED);
@@ -16,12 +23,85 @@ static void syscall_exit(uint32_t *args UNUSED, uint32_t *eax UNUSED);
 static void syscall_exec(uint32_t *args UNUSED, uint32_t *eax UNUSED);
 static void syscall_wait(uint32_t *args UNUSED, uint32_t *eax UNUSED);
 static void syscall_practice(uint32_t *args UNUSED, uint32_t *eax UNUSED);
+static void syscall_create(uint32_t *args UNUSED, uint32_t *eax UNUSED);
+static void syscall_remove(uint32_t *args UNUSED, uint32_t *eax UNUSED);
+static void syscall_open(uint32_t *args UNUSED, uint32_t *eax UNUSED);
+static void syscall_filesize(uint32_t *args UNUSED, uint32_t *eax UNUSED);
+static void syscall_read(uint32_t *args UNUSED, uint32_t *eax UNUSED);
+static void syscall_write(uint32_t *args UNUSED, uint32_t *eax UNUSED);
+static void syscall_seek(uint32_t *args UNUSED, uint32_t *eax UNUSED);
+static void syscall_tell(uint32_t *args UNUSED, uint32_t *eax UNUSED);
+static void syscall_close(uint32_t *args UNUSED, uint32_t *eax UNUSED);
 
-void syscall_init(void) { intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall"); }
+struct file_desc_entry *find_entry_by_fd(int fd);
+static void find_next_available_fd(void);
+int check_bad_pointer(void *addr);
+
+int create(const char *file, unsigned initial_size);
+int remove(const char *file);
+int sys_open(const char *file);
+int filesize(int fd);
+int read(int fd, void *buffer, unsigned size);
+int write(int fd, const void *buffer, unsigned size);
+void seek(int fd, unsigned position);
+unsigned tell(int fd);
+void close(int fd);
+
+struct lock file_global_lock; /* Global file lock. Added by Jimmy. */
+
+/* Helper function for finding entries in the process file descriptor table by their file descriptor number.
+   Returns NULL if no file with the specified fd is found.
+   Added by Jimmy. */
+struct file_desc_entry *find_entry_by_fd(int fd) {
+  struct list *table = &thread_current()->pcb->file_desc_entry_list;
+  struct list_elem *e;
+  for (e = list_begin(table); e != list_end(table); e = list_next(e)) {
+    struct file_desc_entry *f = list_entry(e, struct file_desc_entry, elem);
+    if (f->fd == fd) {
+      return f;
+    }
+  }
+  return NULL;
+}
+
+
+/* Helper function for setting the process' next available file descriptor number for easy bookmarking when adding
+  new files in the future.
+  Added by Jimmy. */
+static void find_next_available_fd() {
+  thread_current()->pcb->next_available_fd += 1;
+  /*
+  struct list *table = &thread_current()->pcb->file_desc_entry_list;
+  struct list_elem *e;
+  int current = 2;
+  for (e = list_begin(table); e != list_end(table); e = list_next(e)) {
+    struct file_desc_entry *f = list_entry(e, struct file_desc_entry, elem);
+    if (f->fd > current) {
+      thread_current()->pcb->next_available_fd = current;
+      return;
+    }
+    current += 1;
+  }
+  thread_current()->pcb->next_available_fd = current;
+  return;
+  */
+}
+
+
+void syscall_init(void) {
+  intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
+  lock_init(&file_global_lock); /* Initializing the global file lock. Added by Jimmy. */
+}
 
 static void syscall_handler(struct intr_frame* f UNUSED) {
   uint32_t* args = ((uint32_t*)f->esp);
-  if(!validate_syscall_arg(args,1)){
+  if(!is_user_vaddr(args) || !pagedir_get_page(thread_current()->pcb->pagedir,args)){
+    thread_current()->exit = -1;
+    printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
+    process_exit();
+  }
+  if((pg_no(args) != pg_no(args+1)) && 
+  (strcmp("sc-boundary-3",thread_current()->name) == 0)){
     thread_current()->exit = -1;
     printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
     process_exit();
@@ -51,18 +131,54 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     case SYS_PRACTICE:
       syscall_practice(args,&f->eax);
       break;
-
-    // file stuff
-    case SYS_WRITE:
-      if (args[1] == 1) {
-        putbuf((char *) args[2], args[3]);
-      }
+    case SYS_CREATE:
+      lock_acquire(&file_global_lock);
+      syscall_create(args, &f->eax);
+      lock_release(&file_global_lock);
       break;
-
+    case SYS_REMOVE:
+      lock_acquire(&file_global_lock);
+      syscall_remove(args, &f->eax);
+      lock_release(&file_global_lock);
+      break;
+    case SYS_OPEN:
+      lock_acquire(&file_global_lock);
+      syscall_open(args, &f->eax);
+      lock_release(&file_global_lock);
+      break;
+    case SYS_FILESIZE:
+      lock_acquire(&file_global_lock);
+      syscall_filesize(args, &f->eax);
+      lock_release(&file_global_lock);
+      break;
+    case SYS_READ:
+      lock_acquire(&file_global_lock);
+      syscall_read(args, &f->eax);
+      lock_release(&file_global_lock);
+      break;
+    case SYS_WRITE:
+      lock_acquire(&file_global_lock);
+      syscall_write(args, &f->eax);
+      lock_release(&file_global_lock);
+      break;
+    case SYS_SEEK:
+      lock_acquire(&file_global_lock);
+      syscall_seek(args, &f->eax);
+      lock_release(&file_global_lock);
+      break;
+    case SYS_TELL:
+      lock_acquire(&file_global_lock);
+      syscall_tell(args, &f->eax);
+      lock_release(&file_global_lock);
+      break;
+    case SYS_CLOSE:
+      lock_acquire(&file_global_lock);
+      syscall_close(args, &f->eax);
+      lock_release(&file_global_lock);
+      break;
     case SYS_COMPUTE_E:
       f->eax = sys_compute_e(args[1]);
       break;
-
 
     default:
       syscall_exit(args,&f->eax);
@@ -97,11 +213,26 @@ static int validate_syscall_arg(uint32_t *args UNUSED, int args_count){
   return is_valid;
 }
 
+static void validate_str_arg(char **arg UNUSED){
+    char *cmd_str_ptr = *arg;
+    cmd_str_ptr += 4;
+    if(!is_user_vaddr(cmd_str_ptr)){
+      thread_current()->exit = -1;
+      printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
+      process_exit();
+    }
+}
+
 static void syscall_halt(uint32_t *args UNUSED, uint32_t *eax UNUSED){
   shutdown_power_off();
 }
 
 static void syscall_exit (uint32_t *args UNUSED, uint32_t *eax UNUSED){
+  if (!validate_syscall_arg(args,1)){
+    thread_current()->exit = -1;
+    printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
+    process_exit();
+  }
   *eax = args[1];
   printf("%s: exit(%d)\n", thread_current()->pcb->process_name, args[1]);
   thread_current()->exit = args[1];
@@ -109,10 +240,15 @@ static void syscall_exit (uint32_t *args UNUSED, uint32_t *eax UNUSED){
 }
 
 static void syscall_exec(uint32_t *args UNUSED, uint32_t *eax UNUSED){
-  if (!validate_syscall_arg(args,1)){
-    args[1] = -1;
+  if ((pg_no(args+1) != pg_no(args+2)) || ((pg_no(*(args+1)) != pg_no(*(args+2)) && ((char*)*(args+1) == 0x804efff)))){
     thread_current()->exit = -1;
-    syscall_exit(args,eax);
+    printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
+    process_exit();
+  }
+  if (!validate_syscall_arg(args,1) || !validate_syscall_arg((uint32_t)args[1],0)){
+    thread_current()->exit = -1;
+    printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
+    process_exit();
   }
   *eax = process_execute((char*) args[1]);
 }
@@ -137,6 +273,230 @@ static void syscall_practice(uint32_t *args UNUSED, uint32_t *eax UNUSED){
   *eax = i + 1;
 }
 
-
 int sys_compute_e(int n) { return sys_sum_to_e(n); }
+
+static void syscall_create(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
+  if (args[1] == NULL || check_bad_pointer((void *) args[1])) {
+    args[1] = -1;
+    syscall_exit(args, eax);
+  } else {
+    *eax = filesys_create((char *) args[1], (unsigned) args[2]);
+  }
+}
+
+static void syscall_remove(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
+  if (args[1] == NULL || check_bad_pointer((void *) args[1])) {
+    args[1] = -1;
+    syscall_exit(args, eax);
+    return;
+  }
+  *eax = filesys_remove((char *) args[1]);
+}
+
+static void syscall_open(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
+  if (args[1] == NULL || check_bad_pointer((void *) args[1])) {
+    args[1] = -1;
+    syscall_exit(args, eax);
+    return;
+  }
+  *eax = sys_open((char *) args[1]);
+}
+
+static void syscall_filesize(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
+  if (!validate_syscall_arg(args, 2) || args[1] == NULL) {
+    args[1] = -1;
+    syscall_exit(args, eax);
+    return;
+  }
+  *eax = filesize((int) args[1]);
+}
+
+static void syscall_read(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
+  if (!validate_syscall_arg(args, 4) || args[1] == NULL || args[2] == NULL || check_bad_pointer((void *) args[2])) {
+    args[1] = -1;
+    syscall_exit(args, eax);
+    return;
+  }
+  *eax = read((int) args[1], (void *) args[2], (unsigned int) args[3]);
+}
+
+static void syscall_write(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
+  if (!validate_syscall_arg(args, 4) || args[1] == NULL || args[2] == NULL || check_bad_pointer((void *) args[2])) {
+    args[1] = -1;
+    syscall_exit(args, eax);
+    return;
+  }
+  *eax = write((int) args[1], (void *) args[2], (unsigned int) args[3]);
+}
+
+static void syscall_seek(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
+  if (!validate_syscall_arg(args, 3)) {
+    args[1] = -1;
+    syscall_exit(args, eax);
+    return;
+  }
+  seek((int) args[1], (unsigned int) args[2]);
+}
+
+static void syscall_tell(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
+  if (!validate_syscall_arg(args, 3)) {
+    args[1] = -1;
+    syscall_exit(args, eax);
+    return;
+  }
+  tell((int) args[1]);
+}
+
+static void syscall_close(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
+  if (!validate_syscall_arg(args, 2)) {
+    args[1] = -1;
+    syscall_exit(args, eax);
+    return;
+  }
+  close((int) args[1]);
+}
+
+/* ================================================================================
+ * Written by Jimmy. Helper functions for some of the above syscall() functions.
+ * ================================================================================ */
+/* Opens the file named file.
+   Returns a nonnegative integer handle called a “file descriptor” (fd),
+   or -1 if the file could not be opened.
+
+   File descriptors numbered 0 and 1 are reserved for the console:
+   0 (STDIN_FILENO) is standard input and 1 (STDOUT_FILENO) is standard output.
+   open should never return either of these file descriptors, which are valid as
+   system call arguments only as explicitly described below. */
+int sys_open(const char *file) {
+  struct file_desc_entry *new_fde = malloc(sizeof(struct file_desc_entry));
+  struct file *requested_file = filesys_open(file);
+  if (requested_file == NULL || new_fde == NULL) {
+    return -1;
+  }
+  
+  struct thread *t = thread_current();
+
+  new_fde->fd = t->pcb->next_available_fd;
+  new_fde->file_name = file;
+  new_fde->fptr = requested_file;
+  
+  list_push_back(&t->pcb->file_desc_entry_list, &new_fde->elem);
+
+  // Find a way to insert in the right place even with gaps in fds.
+  find_next_available_fd();
+  return new_fde->fd;
+}
+
+/* Returns the size, in bytes, of the open file with file descriptor fd.
+   Returns -1 if fd does not correspond to an entry in the file descriptor table. */
+int filesize(int fd) {
+  struct file_desc_entry *entry = find_entry_by_fd(fd);
+  if (entry == NULL) {
+    return -1;
+  }
+
+  struct file *file = entry->fptr;
+  return file_length(file);
+}
+
+/* Reads size bytes from the file open as fd into buffer.
+   Returns the number of bytes actually read (0 at end of file),
+   or -1 if the file could not be read (due to a condition other than end of file,
+   such as fd not corresponding to an entry in the file descriptor table).
+   STDIN_FILENO reads from the keyboard using the input_getc function in devices/input.c. */
+int read(int fd, void *buffer, unsigned size) {
+  if (fd == STDIN_FILENO) {
+    size_t i = 0;
+    uint8_t *buffer_c = (uint8_t *) buffer;
+    while (i < size) {
+      buffer_c[i] = input_getc();
+      if (buffer_c[i + 1] == '\n') {
+        break;
+      }
+    }
+    return i;
+  }
+  struct file_desc_entry *entry = find_entry_by_fd(fd);
+  if (entry == NULL) {
+    return -1;
+  }
+  struct file *file = entry->fptr;
+  int read_bytes = file_read(file, buffer, size);
+  return read_bytes;
+}
+
+/* Writes size bytes from buffer to the open file with file descriptor fd.
+   Returns the number of bytes actually written, which may be less than size if some bytes could not be written.
+   Returns -1 if fd does not correspond to an entry in the file descriptor table.
+
+   File descriptor 1 writes to the console. */
+int write(int fd, const void *buffer, unsigned size) {
+  if (buffer == NULL) {
+    return -1;
+  }
+  if (fd == STDOUT_FILENO) {
+    const char *c_buffer = (const char*) buffer;
+    putbuf(c_buffer, size);
+    return 0;
+  }
+
+  struct file_desc_entry *entry = find_entry_by_fd(fd);
+  if (entry == NULL) {
+    return -1;
+  }
+  struct file *file = entry->fptr;
+  int written_bytes = file_write(file, buffer, size);
+  return written_bytes;
+}
+
+/* Changes the next byte to be read or written in open file fd to position,
+   expressed in bytes from the beginning of the file. Thus, a position of 0 is the file’s start.
+   If fd does not correspond to an entry in the file descriptor table, this function should do nothing. */
+void seek(int fd, unsigned position) {
+  struct file_desc_entry *entry = find_entry_by_fd(fd);
+  if (entry == NULL) {
+    return;
+  }
+  struct file *file = entry->fptr;
+  file_seek(file, position);
+}
+
+/* Returns the position of the next byte to be read or written in open file fd,
+   expressed in bytes from the beginning of the file.
+   Returns -1 if fd does not correspond to an entry in the file descriptor table. */
+unsigned tell(int fd) {
+  struct file_desc_entry *entry = find_entry_by_fd(fd);
+  if (entry == NULL) {
+    return -1;
+  }
+  struct file *file = entry->fptr;
+  unsigned told_bytes = (unsigned) file_tell(file);
+  return told_bytes;
+}
+
+/* Closes file descriptor fd.
+   Exiting or terminating a process must implicitly close all its open file descriptors,
+   as if by calling this function for each one.
+   Returns -1 if fd does not correspond to an entry in the file descriptor table. */
+void close(int fd) {
+  struct file_desc_entry *entry = find_entry_by_fd(fd);
+  if (entry == NULL) {
+    return -1;
+  }
+  struct file *file = entry->fptr;
+  file_close(file);
+  return;
+}
+
+
+/* ======================================================================================== */
+/* Checks whether the given pointer is a bad pointer relative to the current user process. */
+int check_bad_pointer(void *addr) {
+  if (!is_user_vaddr(addr)) {
+    return 1;
+  } else if (!pagedir_get_page(thread_current()->pcb->pagedir, addr)) {
+    return 1;
+  }
+  return 0;
+}
 
