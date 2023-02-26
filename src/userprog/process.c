@@ -99,7 +99,7 @@ static void start_process(void* file_name_) {
   /* Initialize interrupt frame and load executable. */
   if (success) {
     memset(&if_, 0, sizeof if_);
-    //fpu_init(&if_.fpu, &fpu_temp);
+    fpu_init(&if_.fpu, &fpu_temp);
     if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
     if_.cs = SEL_UCSEG;
     if_.eflags = FLAG_IF | FLAG_MBS;

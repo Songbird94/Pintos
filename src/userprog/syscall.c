@@ -1,6 +1,6 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
-#include <float.h>
+#include "lib/float.h"
 #include <syscall-nr.h>
 #include "devices/shutdown.h"
 #include "threads/interrupt.h"
@@ -58,6 +58,11 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
         putbuf((char *) args[2], args[3]);
       }
       break;
+
+    case SYS_COMPUTE_E:
+      f->eax = sys_compute_e(args[1]);
+      break;
+
 
     default:
       syscall_exit(args,&f->eax);
@@ -131,5 +136,7 @@ static void syscall_practice(uint32_t *args UNUSED, uint32_t *eax UNUSED){
   int i = (int)args[1];
   *eax = i + 1;
 }
->>>>>>> a45a36b1ba588fabdf1ac05435b4bbd00a8b90ac
+
+
+int sys_compute_e(int n) { return sys_sum_to_e(n); }
 
