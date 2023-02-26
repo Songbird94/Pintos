@@ -82,7 +82,7 @@ int main(void) {
   bss_init();
 
   /* Initialize FPU */
-  //fp_init();
+  fp_init();
 
   /* Break command line into arguments and parse options. */
   argv = read_command_line();

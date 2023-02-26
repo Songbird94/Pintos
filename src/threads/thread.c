@@ -222,7 +222,7 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
 
   /* Stack frame for switch_threads(). */
   sf = alloc_frame(t, sizeof *sf);
-  //fpu_init(&sf->fpu, &fpu_temp);
+  fpu_init(&sf->fpu, &fpu_temp);
   sf->eip = switch_entry;
   sf->ebp = 0;
 
