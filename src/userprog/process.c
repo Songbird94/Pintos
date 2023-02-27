@@ -186,10 +186,11 @@ void process_exit(void) {
     thread_exit();
     NOT_REACHED();
   }
+  
+  file_close(cur->pcb->exec);
   thread_exit();
 
-  synch_file_close(cur->pcb->exec);
-  free(&cur->pcb->file_desc_entry_list); // Added by Jimmy. Exiting a process should free the entire file descriptor table. May need to add a function to free every entry.
+  free(&cur->pcb->file_desc_entry_list); // Added by Jimmy. Exiting a process should free the entire file descriptor table.
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */

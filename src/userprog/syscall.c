@@ -35,7 +35,6 @@ static void syscall_close(uint32_t *args UNUSED, uint32_t *eax UNUSED);
 struct file_desc_entry *find_entry_by_fd(int fd);
 static void find_next_available_fd(void);
 int check_bad_pointer(void *addr);
-void synch_file_close(struct file *name);
 
 int sys_open(const char *file);
 int filesize(int fd);
@@ -492,10 +491,4 @@ int check_bad_pointer(void *addr) {
     return 1;
   }
   return 0;
-}
-
-void synch_file_close(struct file *name) {
-  lock_acquire(&file_global_lock);
-  file_close(name);
-  lock_release(&file_global_lock);
 }
