@@ -35,16 +35,15 @@ static void syscall_close(uint32_t *args UNUSED, uint32_t *eax UNUSED);
 struct file_desc_entry *find_entry_by_fd(int fd);
 static void find_next_available_fd(void);
 int check_bad_pointer(void *addr);
+void synch_file_close(struct file *name);
 
-int create(const char *file, unsigned initial_size);
-int remove(const char *file);
 int sys_open(const char *file);
 int filesize(int fd);
 int read(int fd, void *buffer, unsigned size);
 int write(int fd, const void *buffer, unsigned size);
 void seek(int fd, unsigned position);
 unsigned tell(int fd);
-void close(int fd);
+int close(int fd);
 
 struct lock file_global_lock; /* Global file lock. Added by Jimmy. */
 
@@ -69,23 +68,7 @@ struct file_desc_entry *find_entry_by_fd(int fd) {
   Added by Jimmy. */
 static void find_next_available_fd() {
   thread_current()->pcb->next_available_fd += 1;
-  /*
-  struct list *table = &thread_current()->pcb->file_desc_entry_list;
-  struct list_elem *e;
-  int current = 2;
-  for (e = list_begin(table); e != list_end(table); e = list_next(e)) {
-    struct file_desc_entry *f = list_entry(e, struct file_desc_entry, elem);
-    if (f->fd > current) {
-      thread_current()->pcb->next_available_fd = current;
-      return;
-    }
-    current += 1;
-  }
-  thread_current()->pcb->next_available_fd = current;
-  return;
-  */
 }
-
 
 void syscall_init(void) {
   intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
@@ -94,6 +77,7 @@ void syscall_init(void) {
 
 static void syscall_handler(struct intr_frame* f UNUSED) {
   uint32_t* args = ((uint32_t*)f->esp);
+
   if(!is_user_vaddr(args) || !pagedir_get_page(thread_current()->pcb->pagedir,args)){
     thread_current()->exit = -1;
     printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
@@ -105,6 +89,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
     process_exit();
   }
+
   uint32_t syscall_num = args[0];
   /*
    * The following print statement, if uncommented, will print out the syscall
@@ -231,6 +216,11 @@ static void syscall_exit (uint32_t *args UNUSED, uint32_t *eax UNUSED){
   *eax = args[1];
   printf("%s: exit(%d)\n", thread_current()->pcb->process_name, args[1]);
   thread_current()->exit = args[1];
+
+  if (lock_held_by_current_thread(&file_global_lock)) {
+    lock_release(&file_global_lock);
+  }
+
   process_exit();
 }
 
@@ -240,12 +230,14 @@ static void syscall_exec(uint32_t *args UNUSED, uint32_t *eax UNUSED){
     printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
     process_exit();
   }
-  if (!validate_syscall_arg(args,1) || !validate_syscall_arg((uint32_t)args[1],0)){
+  if (!validate_syscall_arg(args,1) || !validate_syscall_arg((uint32_t)args[1],1) || args[1] == NULL){
     thread_current()->exit = -1;
     printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
     process_exit();
   }
+  lock_acquire(&file_global_lock);
   *eax = process_execute((char*) args[1]);
+  lock_release(&file_global_lock);
 }
 
 static void syscall_wait(uint32_t *args UNUSED, uint32_t *eax UNUSED){
@@ -254,7 +246,14 @@ static void syscall_wait(uint32_t *args UNUSED, uint32_t *eax UNUSED){
     thread_current()->exit = -1;
     syscall_exit(args,eax);
   }
+  int lock_held = lock_held_by_current_thread(&file_global_lock);
+  if (lock_held) {
+    lock_release(&file_global_lock);
+  }
   *eax = process_wait(args[1]);
+  if (lock_held) {
+    lock_acquire(&file_global_lock);
+  }
 }
 
 static void syscall_practice(uint32_t *args UNUSED, uint32_t *eax UNUSED){
@@ -268,7 +267,7 @@ static void syscall_practice(uint32_t *args UNUSED, uint32_t *eax UNUSED){
 }
 
 static void syscall_create(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
-  if (args[1] == NULL || check_bad_pointer((void *) args[1])) {
+  if (args[1] == NULL || check_bad_pointer(&args[1]) || check_bad_pointer((char *) args[1])) {
     args[1] = -1;
     syscall_exit(args, eax);
   } else {
@@ -277,7 +276,7 @@ static void syscall_create(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
 }
 
 static void syscall_remove(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
-  if (args[1] == NULL || check_bad_pointer((void *) args[1])) {
+  if (args[1] == NULL || check_bad_pointer(&args[1]) || check_bad_pointer((char *) args[1])) {
     args[1] = -1;
     syscall_exit(args, eax);
     return;
@@ -286,7 +285,7 @@ static void syscall_remove(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
 }
 
 static void syscall_open(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
-  if (args[1] == NULL || check_bad_pointer((void *) args[1])) {
+  if (args[1] == NULL || check_bad_pointer(&args[1]) || check_bad_pointer((char *) args[1])) {
     args[1] = -1;
     syscall_exit(args, eax);
     return;
@@ -304,7 +303,7 @@ static void syscall_filesize(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
 }
 
 static void syscall_read(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
-  if (!validate_syscall_arg(args, 4) || args[1] == NULL || args[2] == NULL || check_bad_pointer((void *) args[2])) {
+  if (!validate_syscall_arg(args, 4) || check_bad_pointer(&args[2]) || check_bad_pointer((char *) args[2]) || check_bad_pointer((char *) args[2] + args[3])) {
     args[1] = -1;
     syscall_exit(args, eax);
     return;
@@ -313,7 +312,7 @@ static void syscall_read(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
 }
 
 static void syscall_write(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
-  if (!validate_syscall_arg(args, 4) || args[1] == NULL || args[2] == NULL || check_bad_pointer((void *) args[2])) {
+  if (!validate_syscall_arg(args, 4) || check_bad_pointer(&args[2]) || check_bad_pointer((char *) args[2]) || check_bad_pointer((char *) args[2] + args[3])) {
     args[1] = -1;
     syscall_exit(args, eax);
     return;
@@ -340,12 +339,11 @@ static void syscall_tell(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
 }
 
 static void syscall_close(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
-  if (!validate_syscall_arg(args, 2)) {
+  if (!validate_syscall_arg(args, 2) || close((int) args[1]) == -1) {
     args[1] = -1;
     syscall_exit(args, eax);
     return;
   }
-  close((int) args[1]);
 }
 
 /* ================================================================================
@@ -470,14 +468,16 @@ unsigned tell(int fd) {
    Exiting or terminating a process must implicitly close all its open file descriptors,
    as if by calling this function for each one.
    Returns -1 if fd does not correspond to an entry in the file descriptor table. */
-void close(int fd) {
+int close(int fd) {
   struct file_desc_entry *entry = find_entry_by_fd(fd);
   if (entry == NULL) {
     return -1;
   }
   struct file *file = entry->fptr;
+  list_remove(&entry->elem);
+  free(entry);
   file_close(file);
-  return;
+  return 0;
 }
 
 
@@ -488,6 +488,14 @@ int check_bad_pointer(void *addr) {
     return 1;
   } else if (!pagedir_get_page(thread_current()->pcb->pagedir, addr)) {
     return 1;
+  } else if (addr == NULL) {
+    return 1;
   }
   return 0;
+}
+
+void synch_file_close(struct file *name) {
+  lock_acquire(&file_global_lock);
+  file_close(name);
+  lock_release(&file_global_lock);
 }

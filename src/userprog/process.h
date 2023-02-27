@@ -40,6 +40,7 @@ struct process {
   
   struct list file_desc_entry_list; /* File descriptor table for this process. Added by Jimmy.*/
   int next_available_fd; /* Next available file descriptor for easy assignment when opening new files. Added by Jimmy.*/
+  struct file *exec; /* Pointer to the current file being executed. Added by Jimmy. */
 };
 
 void userprog_init(void);
