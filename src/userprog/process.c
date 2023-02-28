@@ -186,9 +186,18 @@ void process_exit(void) {
     thread_exit();
     NOT_REACHED();
   }
-  
+
   file_close(cur->pcb->exec);
+
   thread_exit();
+
+  /* Freeing the file descriptor table entries. */
+  while (!list_empty(&cur->pcb->file_desc_entry_list)) {
+    struct list_elem *e = list_pop_front(&cur->pcb->file_desc_entry_list);
+    struct file_desc_entry *f = list_entry(e, struct file_desc_entry, elem);
+    file_close(f->fptr);
+    free(f);
+  }
 
   free(&cur->pcb->file_desc_entry_list); // Added by Jimmy. Exiting a process should free the entire file descriptor table.
 
