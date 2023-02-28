@@ -44,6 +44,7 @@ int write(int fd, const void *buffer, unsigned size);
 void seek(int fd, unsigned position);
 unsigned tell(int fd);
 int close(int fd);
+int sys_compute_e(int n);
 
 struct lock file_global_lock; /* Global file lock. Added by Jimmy. */
 
