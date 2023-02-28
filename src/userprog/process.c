@@ -22,6 +22,7 @@
 #include "threads/vaddr.h"
 
 #include "lib/kernel/list.h"
+#include "userprog/syscall.h"
 
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
@@ -188,9 +189,20 @@ void process_exit(void) {
     thread_exit();
     NOT_REACHED();
   }
+
+  file_close(cur->pcb->exec);
+
   thread_exit();
 
-  free(&cur->pcb->file_desc_entry_list); // Added by Jimmy. Exiting a process should free the entire file descriptor table. May need to add a function to free every entry.
+  /* Freeing the file descriptor table entries. */
+  while (!list_empty(&cur->pcb->file_desc_entry_list)) {
+    struct list_elem *e = list_pop_front(&cur->pcb->file_desc_entry_list);
+    struct file_desc_entry *f = list_entry(e, struct file_desc_entry, elem);
+    file_close(f->fptr);
+    free(f);
+  }
+
+  free(&cur->pcb->file_desc_entry_list); // Added by Jimmy. Exiting a process should free the entire file descriptor table.
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -386,6 +398,9 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
     goto done;
   }
 
+  file_deny_write(file);
+  t->pcb->exec = file;
+
   /* Read and verify executable header. */
   if (file_read(file, &ehdr, sizeof ehdr) != sizeof ehdr ||
       memcmp(ehdr.e_ident, "\177ELF\1\1\1", 7) || ehdr.e_type != 2 || ehdr.e_machine != 3 ||
@@ -455,7 +470,7 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
 
 done:
   /* We arrive here whether the load is successful or not. */
-  file_close(file);
+
   return success;
 }
 
