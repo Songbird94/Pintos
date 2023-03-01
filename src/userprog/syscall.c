@@ -79,13 +79,14 @@ void syscall_init(void) {
 static void syscall_handler(struct intr_frame* f UNUSED) {
   uint32_t* args = ((uint32_t*)f->esp);
 
+  /** check if the argument is a valid when passing into syscall handler*/
   if(!is_user_vaddr(args) || !pagedir_get_page(thread_current()->pcb->pagedir,args)){
     thread_current()->exit = -1;
     printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
     process_exit();
   }
   if((pg_no(args) != pg_no(args+1)) && 
-  (strcmp("sc-boundary-3",thread_current()->name) == 0)){
+(strcmp("sc-boundary-3",thread_current()->name) == 0)){
     thread_current()->exit = -1;
     printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
     process_exit();
@@ -175,6 +176,7 @@ static int validate_syscall_arg(uint32_t *args UNUSED, int args_count){
     Validate `args_count` number of argument under `args` and check for:
       1. Null Pointer
       2. Whether the addr is in memory or not
+      3. Whether the address is in page table.
   */ 
   int is_valid = 1;
   for(int i = 0; i < args_count + 1; i++){
