@@ -208,6 +208,7 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
   init_thread(t, token, priority);
   tid = t->tid = allocate_tid();
 
+  /** Initialize the child status struct. */
   t->self = (struct child_status *)malloc(sizeof(struct child_status));
   t->self->tid = tid;
   sema_init (&t->self->wait_sema, 0);

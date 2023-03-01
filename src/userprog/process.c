@@ -178,7 +178,9 @@ int process_wait(pid_t child_pid UNUSED) {
     return -1;
   }
   list_remove(start);
-  return c->exit;
+  int exit = c->exit;
+  free(c);
+  return exit;
 }
 
 /* Free the current process's resources. */
@@ -194,7 +196,6 @@ void process_exit(void) {
 
   file_close(cur->pcb->exec);
 
-  // thread_exit();
 
   /* Freeing the file descriptor table entries. */
   while (!list_empty(&cur->pcb->file_desc_entry_list)) {
@@ -203,8 +204,6 @@ void process_exit(void) {
     file_close(f->fptr);    // frees the (struct file) embeded inside file_desc_entry
     free(f);
   }
-
-  //free(&cur->pcb->file_desc_entry_list); // Added by Jimmy. Exiting a process should free the entire file descriptor table.
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
