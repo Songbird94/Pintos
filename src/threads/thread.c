@@ -131,6 +131,9 @@ void thread_start(void) {
   /* Start preemptive thread scheduling. */
   intr_enable();
 
+  /* proj 1 note: For the fp-kinit test, maybe we could've also added the asm('fninit') here? 
+  To initial the fpu for the very first thread. */
+
   /* Wait for the idle thread to initialize idle_thread. */
   sema_down(&idle_started);
 }

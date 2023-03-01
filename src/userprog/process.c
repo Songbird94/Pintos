@@ -24,6 +24,8 @@
 #include "lib/kernel/list.h"
 #include "userprog/syscall.h"
 
+//struct lock file_lock;
+
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
 static thread_func start_pthread NO_RETURN;
@@ -192,17 +194,19 @@ void process_exit(void) {
 
   file_close(cur->pcb->exec);
 
-  thread_exit();
+  // thread_exit();
 
   /* Freeing the file descriptor table entries. */
+  //lock_acquire(&file_lock);
   while (!list_empty(&cur->pcb->file_desc_entry_list)) {
     struct list_elem *e = list_pop_front(&cur->pcb->file_desc_entry_list);
     struct file_desc_entry *f = list_entry(e, struct file_desc_entry, elem);
-    file_close(f->fptr);
+    file_close(f->fptr);    // frees the (struct file) embeded inside file_desc_entry
     free(f);
   }
 
-  free(&cur->pcb->file_desc_entry_list); // Added by Jimmy. Exiting a process should free the entire file descriptor table.
+  //free(&cur->pcb->file_desc_entry_list); // Added by Jimmy. Exiting a process should free the entire file descriptor table.
+  //lock_release(&file_lock);
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -322,7 +326,7 @@ char** parse_cmd(char* cmdline, int* num_args, int* num_bytes) {
 
   /* First, scan through the string to get the number of argumetns: argc */
   for (int i = 0; i < len; i++) {
-    if (cmdline[i] == ' ' && (i == len-1 || cmdline[i+1] != ' ')) {
+    if (cmdline[i] == ' ' && cmdline[i+1] != '\0' && cmdline[i+1] != ' ') {
         argc += 1;
       }
   }
