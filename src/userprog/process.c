@@ -197,7 +197,6 @@ void process_exit(void) {
   // thread_exit();
 
   /* Freeing the file descriptor table entries. */
-  //lock_acquire(&file_lock);
   while (!list_empty(&cur->pcb->file_desc_entry_list)) {
     struct list_elem *e = list_pop_front(&cur->pcb->file_desc_entry_list);
     struct file_desc_entry *f = list_entry(e, struct file_desc_entry, elem);
@@ -206,7 +205,6 @@ void process_exit(void) {
   }
 
   //free(&cur->pcb->file_desc_entry_list); // Added by Jimmy. Exiting a process should free the entire file descriptor table.
-  //lock_release(&file_lock);
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
