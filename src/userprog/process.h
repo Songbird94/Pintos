@@ -18,8 +18,7 @@ typedef tid_t pid_t;
 typedef void (*pthread_fun)(void*);
 typedef void (*stub_fun)(pthread_fun, void*);
 
-/* File descriptor table entry implementing using Pintos list structures.
- * Added by Jimmy.*/
+/* File descriptor table entry implementing using Pintos list structures. */
 struct file_desc_entry {
   int fd;
   const char *file_name;
@@ -38,9 +37,9 @@ struct process {
   char process_name[16];      /* Name of the main thread */
   struct thread* main_thread; /* Pointer to main thread */
   
-  struct list file_desc_entry_list; /* File descriptor table for this process. Added by Jimmy.*/
-  int next_available_fd; /* Next available file descriptor for easy assignment when opening new files. Added by Jimmy.*/
-  struct file *exec; /* Pointer to the current file being executed. Added by Jimmy. */
+  struct list file_desc_entry_list; /* File descriptor table for this process. */
+  int next_available_fd; /* Next available file descriptor for easy assignment when opening new files. */
+  struct file *exec; /* Pointer to the current file being executed. */
 };
 
 void userprog_init(void);

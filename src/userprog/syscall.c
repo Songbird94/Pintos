@@ -37,7 +37,7 @@ struct file_desc_entry *find_entry_by_fd(int fd);
 static void find_next_available_fd(void);
 int check_bad_pointer(void *addr);
 
-int sys_open(const char *file);
+int open(const char *file);
 int filesize(int fd);
 int read(int fd, void *buffer, unsigned size);
 int write(int fd, const void *buffer, unsigned size);
@@ -49,8 +49,7 @@ int sys_compute_e(int n);
 struct lock file_global_lock; /* Global file lock. Added by Jimmy. */
 
 /* Helper function for finding entries in the process file descriptor table by their file descriptor number.
-   Returns NULL if no file with the specified fd is found.
-   Added by Jimmy. */
+   Returns NULL if no file with the specified fd is found. */
 struct file_desc_entry *find_entry_by_fd(int fd) {
   struct list *table = &thread_current()->pcb->file_desc_entry_list;
   struct list_elem *e;
@@ -65,15 +64,14 @@ struct file_desc_entry *find_entry_by_fd(int fd) {
 
 
 /* Helper function for setting the process' next available file descriptor number for easy bookmarking when adding
-  new files in the future.
-  Added by Jimmy. */
+  new files in the future. */
 static void find_next_available_fd() {
   thread_current()->pcb->next_available_fd += 1;
 }
 
 void syscall_init(void) {
   intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
-  lock_init(&file_global_lock); /* Initializing the global file lock. Added by Jimmy. */
+  lock_init(&file_global_lock); /* Initializing the global file lock.*/
 }
 
 static void syscall_handler(struct intr_frame* f UNUSED) {
@@ -99,7 +97,6 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
    * include it in your final submission.
    */
 
-  /* printf("System call number: %d\n", args[0]); */
   switch(syscall_num){
     case SYS_HALT:
       syscall_halt(args,&f->eax);
@@ -298,7 +295,7 @@ static void syscall_open(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
     syscall_exit(args, eax);
     return;
   }
-  *eax = sys_open((char *) args[1]);
+  *eax = open((char *) args[1]);
 }
 
 static void syscall_filesize(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
@@ -343,7 +340,13 @@ static void syscall_tell(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
     syscall_exit(args, eax);
     return;
   }
-  tell((int) args[1]);
+  int position = tell((int) args[1]);
+  if (position == -1) {
+    args[1] = -1;
+    syscall_exit(args, eax);
+    return;
+  }
+  *eax = position;
 }
 
 static void syscall_close(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
@@ -365,7 +368,7 @@ static void syscall_close(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
    0 (STDIN_FILENO) is standard input and 1 (STDOUT_FILENO) is standard output.
    open should never return either of these file descriptors, which are valid as
    system call arguments only as explicitly described below. */
-int sys_open(const char *file) {
+int open(const char *file) {
   struct file_desc_entry *new_fde = malloc(sizeof(struct file_desc_entry));
   struct file *requested_file = filesys_open(file);
   if (requested_file == NULL || new_fde == NULL) {

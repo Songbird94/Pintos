@@ -103,8 +103,8 @@ static void start_process(void* file_name_) {
     t->pcb->main_thread = t;
     strlcpy(t->pcb->process_name, t->name, sizeof t->name);
 
-    list_init(&t->pcb->file_desc_entry_list); /* Need to initialize the Pintos list representing the file table. Added by Jimmy.*/
-    t->pcb->next_available_fd = 2; /* Added by Jimmy. fds 0 and 1 are reserved for STDIN an STDOUT respectively.  */
+    list_init(&t->pcb->file_desc_entry_list); /* Need to initialize the Pintos list representing the file table.*/
+    t->pcb->next_available_fd = 2; /* fds 0 and 1 are reserved for STDIN an STDOUT respectively.  */
   }
 
   /* Initialize interrupt frame and load executable. */
@@ -201,8 +201,6 @@ void process_exit(void) {
     file_close(f->fptr);
     free(f);
   }
-
-  free(&cur->pcb->file_desc_entry_list); // Added by Jimmy. Exiting a process should free the entire file descriptor table.
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
