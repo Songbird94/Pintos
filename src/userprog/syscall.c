@@ -360,7 +360,7 @@ static void syscall_close(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
 }
 
 /* ================================================================================
- * Written by Jimmy. Helper functions for some of the above syscall() functions.
+ * Helper functions for some of the above syscall() functions.
  * ================================================================================ */
 /* Opens the file named file.
    Returns a nonnegative integer handle called a “file descriptor” (fd),
