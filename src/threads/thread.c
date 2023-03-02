@@ -131,6 +131,9 @@ void thread_start(void) {
   /* Start preemptive thread scheduling. */
   intr_enable();
 
+  /* proj 1 note: For the fp-kinit test, maybe we could've also added the asm('fninit') here? 
+  To initial the fpu for the very first thread. */
+
   /* Wait for the idle thread to initialize idle_thread. */
   sema_down(&idle_started);
 }
@@ -205,6 +208,7 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
   init_thread(t, token, priority);
   tid = t->tid = allocate_tid();
 
+  /** Initialize the child status struct. */
   t->self = (struct child_status *)malloc(sizeof(struct child_status));
   t->self->tid = tid;
   sema_init (&t->self->wait_sema, 0);

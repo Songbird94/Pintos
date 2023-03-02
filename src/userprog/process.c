@@ -24,6 +24,8 @@
 #include "lib/kernel/list.h"
 #include "userprog/syscall.h"
 
+//struct lock file_lock;
+
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
 static thread_func start_pthread NO_RETURN;
@@ -176,7 +178,9 @@ int process_wait(pid_t child_pid UNUSED) {
     return -1;
   }
   list_remove(start);
-  return c->exit;
+  int exit = c->exit;
+  free(c);
+  return exit;
 }
 
 /* Free the current process's resources. */
@@ -192,13 +196,12 @@ void process_exit(void) {
 
   file_close(cur->pcb->exec);
 
-  thread_exit();
 
   /* Freeing the file descriptor table entries. */
   while (!list_empty(&cur->pcb->file_desc_entry_list)) {
     struct list_elem *e = list_pop_front(&cur->pcb->file_desc_entry_list);
     struct file_desc_entry *f = list_entry(e, struct file_desc_entry, elem);
-    file_close(f->fptr);
+    file_close(f->fptr);    // frees the (struct file) embeded inside file_desc_entry
     free(f);
   }
 
@@ -320,7 +323,7 @@ char** parse_cmd(char* cmdline, int* num_args, int* num_bytes) {
 
   /* First, scan through the string to get the number of argumetns: argc */
   for (int i = 0; i < len; i++) {
-    if (cmdline[i] == ' ' && (i == len-1 || cmdline[i+1] != ' ')) {
+    if (cmdline[i] == ' ' && cmdline[i+1] != '\0' && cmdline[i+1] != ' ') {
         argc += 1;
       }
   }
