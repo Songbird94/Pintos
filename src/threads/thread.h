@@ -101,12 +101,16 @@ struct thread {
   /* Owned by thread.c. */
   unsigned magic; /* Detects stack overflow. */
 
-    struct list childs_status_lst;               /* A list of childs */
-    struct semaphore child_sema;      /* Semaphore for parent waiting for child */
-    struct child_status * self;              /* Store the child_status struct of the thread */
-    struct thread* parent;            /* Parent thread of the thread */
-    int exit;                         /* Exit status */
-    bool execution;                   /* Execution status */
+  struct list childs_status_lst;    /* A list of childs */
+  struct semaphore child_sema;      /* Semaphore for parent waiting for child */
+  struct child_status * self;       /* Store the child_status struct of the thread */
+  struct thread* parent;            /* Parent thread of the thread */
+  int exit;                         /* Exit status */
+  bool execution;                   /* Execution status */
+
+
+  /* Added by Jimmy for PROJECT 2. Need a new attribute to keep track of earliest wakeup time. */
+  int64_t wakeup_time;
 };
 
 struct child_status
@@ -164,5 +168,14 @@ int thread_get_nice(void);
 void thread_set_nice(int);
 int thread_get_recent_cpu(void);
 int thread_get_load_avg(void);
+
+/* ======================================================================================= */
+/*        Function signatures for new functions added for Project 2. Added by Jimmy.       */
+/* ======================================================================================= */
+
+void put_me_to_sleep(int64_t ticks, struct thread *thread);
+void sweep_sleeper_list(void);
+
+/* ======================================================================================= */
 
 #endif /* threads/thread.h */
