@@ -332,7 +332,7 @@ char** parse_cmd(char* cmdline, int* num_args, int* num_bytes) {
   /* argv: array of argument strings (char *), argv[argc] = NULL pointer. */
   char** argv = (char **) malloc(sizeof(char*) * (argc + 1));
   if (argv == NULL) {
-    printf("Malloc failed\n");
+    return NULL;
   }
 
   /* Since strtok_r() makes modification to the given string, make a copy. */
@@ -354,7 +354,10 @@ char** parse_cmd(char* cmdline, int* num_args, int* num_bytes) {
     n = strlen(token);
     tok_str = (char *) malloc(n + 1);
     if (tok_str == NULL) {
-      printf("Malloc failed\n");
+      /* If malloc fails, free the previously malloc-ed strings in argv. 
+      Currently, about to store argument i, so free all args up to i, using free_args*/
+      free_args(i, argv);
+      return NULL;
     }
     strlcpy(tok_str, token, n + 1);
     argv[i++] = tok_str;
@@ -391,6 +394,12 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
      Writes argc = number of arguments, total_bytes = total bytes of each argument string + \0 */
   int argc, total_bytes;
   char** argv = parse_cmd(file_name, &argc, &total_bytes);
+  /* In case one of the malloc's in parse_cmd failed, */
+  if (argv == NULL) {
+    /* Modeling off of starter code, go to done section, with success set to false.*/
+    printf("Malloc failed\n");
+    goto done;
+  }
 
   /* Open executable file. */
   file = filesys_open(argv[0]);
@@ -522,6 +531,14 @@ static bool validate_segment(const struct Elf32_Phdr* phdr, struct file* file) {
   return true;
 }
 
+/* Since each string argv[i] has been malloc-ed memory, need to free it*/
+void free_args(int argc, char** argv) {
+  for (int i = 0; i < argc; i++) {
+    free(argv[i]);
+  }
+  free(argv);
+}
+
 /* Loads a segment starting at offset OFS in FILE at address
    UPAGE.  In total, READ_BYTES + ZERO_BYTES bytes of virtual
    memory are initialized, as follows:
@@ -627,14 +644,6 @@ void* push_args(int argc, char** argv, int total_bytes) {
   // fake rip
   init_esp -= 4;
   return init_esp;
-}
-
-/* Since each string argv[i] has been malloc-ed memory, need to free it*/
-void free_args(int argc, char** argv) {
-  for (int i = 0; i < argc; i++) {
-    free(argv[i]);
-  }
-  free(argv);
 }
 
 
