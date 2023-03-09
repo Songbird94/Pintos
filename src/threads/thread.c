@@ -643,7 +643,7 @@ uint32_t thread_stack_ofs = offsetof(struct thread, stack);
   function since interrupts need to be disabled anyways to call thread_block(). */
 void put_me_to_sleep(int64_t ticks, struct thread *thread) {
   thread->wakeup_time = timer_ticks() + ticks; // Set the wakeup_time for the calling thread.
-  list_push_front(&sleeping_thread_list, &thread->elem); // Insert calling thread into the sleeping_thread_list.
+  list_push_front(&sleeping_thread_list, &thread->sleep_elem); // Insert calling thread into the sleeping_thread_list.
 }
 
 /* Function called by timer_interrupt() in ./timer.c which sweeps through the
@@ -658,7 +658,7 @@ void sweep_sleeper_list() {
   
   while (e != list_end(&sleeping_thread_list)) {
 
-    struct thread *t = list_entry(e, struct thread, elem);
+    struct thread *t = list_entry(e, struct thread, sleep_elem);
 
     if (t->wakeup_time <= current_ticks) {
       struct list_elem *temp = e;

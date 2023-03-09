@@ -103,11 +103,14 @@ struct thread {
 
   struct list childs_status_lst;    /* A list of childs */
   struct semaphore child_sema;      /* Semaphore for parent waiting for child */
-  struct child_status * self;       /* Store the child_status struct of the thread */
+  struct child_status *self;        /* Store the child_status struct of the thread */
   struct thread* parent;            /* Parent thread of the thread */
   int exit;                         /* Exit status */
   bool execution;                   /* Execution status */
 
+
+  /* Added by Jimmy for Project 2. Need a seperate list_elem struct so that thread can be used in another list without conflicting with other lists it can be in.*/
+  struct list_elem sleep_elem;
 
   /* Added by Jimmy for PROJECT 2. Need a new attribute to keep track of earliest wakeup time. */
   int64_t wakeup_time;
@@ -116,7 +119,7 @@ struct thread {
 struct child_status
   {
     tid_t tid;                           /* tid of the child thread */
-    struct list_elem elem;         /* list of children */
+    struct list_elem elem;               /* list of children */
     struct semaphore wait_sema;          /* semaphore for waiting */
     int exit;                            /* the exit code of child thread */
     bool success;                        /* Execution status of child thread*/
