@@ -177,7 +177,7 @@ int thread_get_load_avg(void);
 /* ======================================================================================= */
 
 void put_me_to_sleep(int64_t ticks, struct thread *thread);
-void sweep_sleeper_list(void);
+void wake_sleeping_threads(void);
 
 /* ======================================================================================= */
 

@@ -32,6 +32,12 @@ static void syscall_write(uint32_t *args UNUSED, uint32_t *eax UNUSED);
 static void syscall_seek(uint32_t *args UNUSED, uint32_t *eax UNUSED);
 static void syscall_tell(uint32_t *args UNUSED, uint32_t *eax UNUSED);
 static void syscall_close(uint32_t *args UNUSED, uint32_t *eax UNUSED);
+static void syscall_lock_init(uint32_t *args UNUSED, uint32_t *eax UNUSED);
+static void syscall_lock_acquire(uint32_t *args UNUSED, uint32_t *eax UNUSED);
+static void syscall_lock_release(uint32_t *args UNUSED, uint32_t *eax UNUSED);
+static void syscall_sema_init(uint32_t *args UNUSED, uint32_t *eax UNUSED);
+static void syscall_sema_up(uint32_t *args UNUSED, uint32_t *eax UNUSED);
+static void syscall_sema_down(uint32_t *args UNUSED, uint32_t *eax UNUSED);
 
 struct file_desc_entry *find_entry_by_fd(int fd);
 static void find_next_available_fd(void);
@@ -45,6 +51,12 @@ void seek(int fd, unsigned position);
 unsigned tell(int fd);
 int close(int fd);
 int sys_compute_e(int n);
+bool sys_lock_init(lock_t* lock);
+void sys_lock_acquire(lock_t* lock);
+void sys_lock_release(lock_t* lock);
+bool sys_sema_init(lock_t* lock, int val);
+void sys_sema_up(sema_t* sema);
+void sys_sema_down(sema_t* sema);
 
 struct lock file_global_lock; /* Global file lock. Added by Jimmy. */
 
@@ -75,6 +87,9 @@ void syscall_init(void) {
 }
 
 static void syscall_handler(struct intr_frame* f UNUSED) {
+
+  lock_acquire(&thread_current()->pcb->syscall_lock);
+
   uint32_t* args = ((uint32_t*)f->esp);
 
   /** check if the argument is a valid when passing into syscall handler*/
@@ -162,10 +177,20 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     case SYS_COMPUTE_E:
       f->eax = sys_compute_e(args[1]);
       break;
-
+    case SYS_LOCK_INIT:
+      syscall_lock_init(args, &f->eax);
+      break;
+    case SYS_LOCK_ACQUIRE:
+      syscall_lock_acquire(args, &f->eax);
+      break;
+    case SYS_LOCK_RELEASE:
+      syscall_lock_release(args, &f->eax);
+      break;
     default:
-      syscall_exit(args,&f->eax);
+      syscall_exit(args, &f->eax);
   }
+
+  lock_release(&thread_current()->pcb->syscall_lock);
 }
 
 static int validate_syscall_arg(uint32_t *args UNUSED, int args_count){
@@ -359,6 +384,61 @@ static void syscall_close(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
   }
 }
 
+static void syscall_lock_init(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
+  if (!validate_syscall_arg(args, 2) || args[1] == NULL) {
+    args[1] = -1;
+    syscall_exit(args, eax);
+    return;
+  }
+  *eax = sys_lock_init((char) args[1]);
+}
+
+static void syscall_lock_acquire(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
+  if (!validate_syscall_arg(args, 2) || args[1] == NULL) {
+    args[1] = -1;
+    syscall_exit(args, eax);
+    return;
+  }
+  sys_lock_acquire((char) args[1]);
+}
+
+static void syscall_lock_release(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
+  if (!validate_syscall_arg(args, 2) || args[1] == NULL) {
+    args[1] = -1;
+    syscall_exit(args, eax);
+    return;
+  }
+  sys_lock_release((char) args[1]);
+}
+
+static void syscall_sema_init(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
+  if (!validate_syscall_arg(args, 3) || args[1] == NULL) {
+    args[1] = -1;
+    syscall_exit(args, eax);
+    return;
+  }
+  *eax = sys_sema_init((char) args[1], (int) args[2]);
+}
+
+static void syscall_sema_up(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
+  if (!validate_syscall_arg(args, 2) || args[1] == NULL) {
+    args[1] = -1;
+    syscall_exit(args, eax);
+    return;
+  }
+  sys_sema_up((char) args[1]);
+}
+
+static void syscall_sema_down(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
+  if (!validate_syscall_arg(args, 2) || args[1] == NULL) {
+    args[1] = -1;
+    syscall_exit(args, eax);
+    return;
+  }
+  sys_sema_down((char) args[1]);
+}
+
+
 /* ================================================================================
  * Helper functions for some of the above syscall() functions.
  * ================================================================================ */
@@ -493,6 +573,72 @@ int close(int fd) {
   return 0;
 }
 
+/* Initializes a user lock by creating a new user_lock_entry and adding to the PCB list. */
+bool sys_lock_init(lock_t* lock) {
+  struct user_lock_entry *new_user_lock = malloc(sizeof(struct user_lock_entry));
+  if (new_user_lock == NULL) {
+    return false;
+  }
+  new_user_lock->user_lock_id = lock;
+  lock_init(&new_user_lock->lock);
+  list_push_back(&thread_current()->pcb->user_locks, &new_user_lock->elem);
+  return true;
+}
+
+/* Attempts to acquire a user lock. */
+void sys_lock_acquire(lock_t *lock) {
+  struct list_elem *e;
+  for (e = list_begin(&thread_current()->pcb->user_locks); e != list_end(&thread_current()->pcb->user_locks); e = list_next(e)) {
+    struct user_lock_entry *entry = list_entry(e, struct user_lock_entry, elem);
+    if (entry->user_lock_id == lock) {
+      lock_acquire(&entry->lock);
+    }
+  }
+}
+
+/* Attempts to release a user lock. */
+void sys_lock_release(lock_t *lock) {
+  struct list_elem *e;
+  for (e = list_begin(&thread_current()->pcb->user_locks); e != list_end(&thread_current()->pcb->user_locks); e = list_next(e)) {
+    struct user_lock_entry *entry = list_entry(e, struct user_lock_entry, elem);
+    if (entry->user_lock_id == lock) {
+      lock_release(&entry->lock);
+    }
+  }
+}
+
+/* Attempts to initialize a user semaphore. */
+bool sys_sema_init(sema_t* sema, int val) {
+  struct user_sema_entry *new_user_sema = malloc(sizeof(struct user_sema_entry));
+  if (new_user_sema == NULL) {
+    return false;
+  }
+  new_user_sema->user_sema_id = sema;
+  sema_init(&new_user_sema->sema, val);
+  list_push_back(&thread_current()->pcb->user_semaphores, &new_user_sema->elem);
+}
+
+/* Attempts to raise a user semaphore's value up one value. */
+void sys_sema_up(sema_t* sema) {
+  struct list_elem *e;
+  for (e = list_begin(&thread_current()->pcb->user_semaphores); e != list_end(&thread_current()->pcb->user_semaphores); e = list_next(e)) {
+    struct user_sema_entry *entry = list_entry(e, struct user_sema_entry, elem);
+    if (entry->user_sema_id == sema) {
+      sema_up(&entry->sema);
+    }
+  }
+}
+
+/* Attempts to lower a user semaphore's value down one value. */
+void sys_sema_down(sema_t* sema) {
+  struct list_elem *e;
+  for (e = list_begin(&thread_current()->pcb->user_semaphores); e != list_end(&thread_current()->pcb->user_semaphores); e = list_next(e)) {
+    struct user_sema_entry *entry = list_entry(e, struct user_sema_entry, elem);
+    if (entry->user_sema_id == sema) {
+      sema_down(&entry->sema);
+    }
+  }
+}
 
 /* ======================================================================================== */
 /* Checks whether the given pointer is a bad pointer relative to the current user process. */

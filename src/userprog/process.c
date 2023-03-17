@@ -24,8 +24,6 @@
 #include "lib/kernel/list.h"
 #include "userprog/syscall.h"
 
-//struct lock file_lock;
-
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
 static thread_func start_pthread NO_RETURN;
@@ -107,6 +105,11 @@ static void start_process(void* file_name_) {
 
     list_init(&t->pcb->file_desc_entry_list); /* Need to initialize the Pintos list representing the file table.*/
     t->pcb->next_available_fd = 2; /* fds 0 and 1 are reserved for STDIN an STDOUT respectively.  */
+
+
+    list_init(&t->pcb->user_locks); /* Need to initialize the user locks Pintos list. */
+    list_init(&t->pcb->user_semaphores); /* Need to initialize the user semaphores Pintos list. */
+    lock_init(&t->pcb->syscall_lock);
   }
 
   /* Initialize interrupt frame and load executable. */
@@ -202,6 +205,19 @@ void process_exit(void) {
     struct list_elem *e = list_pop_front(&cur->pcb->file_desc_entry_list);
     struct file_desc_entry *f = list_entry(e, struct file_desc_entry, elem);
     file_close(f->fptr);    // frees the (struct file) embeded inside file_desc_entry
+    free(f);
+  }
+
+  /* Freeing the user locks and semaphore lists. */
+  while (!list_empty(&cur->pcb->user_locks)) {
+    struct list_elem *e = list_pop_front(&cur->pcb->user_locks);
+    struct user_lock_entry *f = list_entry(e, struct user_lock_entry, elem);
+    free(f);
+  }
+
+  while (!list_empty(&cur->pcb->user_semaphores)) {
+    struct list_elem *e = list_pop_front(&cur->pcb->user_semaphores);
+    struct user_lock_entry *f = list_entry(e, struct user_sema_entry, elem);
     free(f);
   }
 

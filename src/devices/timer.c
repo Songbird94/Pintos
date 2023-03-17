@@ -145,10 +145,12 @@ void timer_print_stats(void) { printf("Timer: %" PRId64 " ticks\n", timer_ticks(
 /* Timer interrupt handler. */
 static void timer_interrupt(struct intr_frame* args UNUSED) {
   ticks++;
+  enum intr_level previous_interrupt_level = intr_disable();
 
-  sweep_sleeper_list(); // Added by Jimmy for Project 2. Deals with unblocking threads that have gone past their timer and modifying sleeping_threads_list.
+  wake_sleeping_threads(); // Added by Jimmy for Project 2. Deals with unblocking threads that have gone past their timer and modifying sleeping_threads_list.
 
   thread_tick();
+  intr_set_level(previous_interrupt_level);
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

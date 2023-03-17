@@ -652,7 +652,7 @@ void put_me_to_sleep(int64_t ticks, struct thread *thread) {
 
   Note: timer_unblock() internally disables interrupts so no need to synchronize the same
   way as put_me_to_sleep. */
-void sweep_sleeper_list() {
+void wake_sleeping_threads() {
   int64_t current_ticks = timer_ticks();
   struct list_elem *e = list_begin(&sleeping_thread_list);
   
