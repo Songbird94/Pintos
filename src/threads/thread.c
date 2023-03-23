@@ -13,6 +13,11 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+
+
+#include "devices/timer.h" // Added by Jimmy for Project 2.
+
+
 #ifdef USERPROG
 #include "userprog/process.h"
 #include "userprog/syscall.h"
@@ -93,6 +98,24 @@ scheduler_func* scheduler_jump_table[8] = {thread_schedule_fifo,     thread_sche
                                            thread_schedule_reserved, thread_schedule_reserved,
                                            thread_schedule_reserved, thread_schedule_reserved};
 
+
+
+
+
+/* ############################################################################################### */
+/*         BEGINNING OF NEW DATA STRUCTURES TO BE ADDED FOR Project 2. Added by Jimmy.             */
+/* ####################################################################################### */
+
+/* A Pintos list of thread structs that are currently sleeping. */
+static struct list sleeping_thread_list;
+
+
+/* ############################################################################################### */
+
+
+
+
+
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -112,6 +135,8 @@ void thread_init(void) {
   lock_init(&tid_lock);
   list_init(&fifo_ready_list);
   list_init(&all_list);
+
+  list_init(&sleeping_thread_list); // Added by Jimmy for Project 2. Initializes the sleeping_thread_list for timer interrupts.
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread();
@@ -458,6 +483,9 @@ static void init_thread(struct thread* t, const char* name, int priority) {
   t->priority = priority;
   t->pcb = NULL;
   t->magic = THREAD_MAGIC;
+
+  t->wakeup_time = 0; // Added by Jimmy. Initialize wakeup_time to be 0.
+
   if (t==initial_thread){
     t->parent=NULL;
   }else{
@@ -600,3 +628,50 @@ static tid_t allocate_tid(void) {
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof(struct thread, stack);
+
+
+/* ####################################################################################### */
+/*         BEGINNING OF NEW FUNCTIONS TO BE ADDED FOR Project 2. Added by Jimmy.           */
+/* ####################################################################################### */
+
+/* Function called by a thread to put itself to sleep.
+
+  Appends an entry to the sleeping_threads_list in order to keep track that its been put
+  to sleep. Furthermore, the ticks parameter should be computed in the timer.c function
+  before being passed to this function.
+
+  Synchronization for modifying sleeping_thread_list should be handled by the timer.c
+  function since interrupts need to be disabled anyways to call thread_block(). */
+void put_me_to_sleep(int64_t ticks, struct thread *thread) {
+  thread->wakeup_time = timer_ticks() + ticks; // Set the wakeup_time for the calling thread.
+  list_push_front(&sleeping_thread_list, &thread->sleep_elem); // Insert calling thread into the sleeping_thread_list.
+}
+
+/* Function called by timer_interrupt() in ./timer.c which sweeps through the
+  sleeping_thread_list in linear time and unblocks with timer_unblock() all threads
+  whose wakeup_time attribute is less than the current CPU tick count.
+
+  Note: timer_unblock() internally disables interrupts so no need to synchronize the same
+  way as put_me_to_sleep. */
+void wake_sleeping_threads() {
+  int64_t current_ticks = timer_ticks();
+  struct list_elem *e = list_begin(&sleeping_thread_list);
+  
+  while (e != list_end(&sleeping_thread_list)) {
+
+    struct thread *t = list_entry(e, struct thread, sleep_elem);
+
+    if (t->wakeup_time <= current_ticks) {
+      struct list_elem *temp = e;
+      e = list_next(e);
+      list_remove(temp);
+      thread_unblock(t);
+    } else {
+      e = list_next(e);
+    }
+  }
+}
+
+
+
+/* ####################################################################################### */

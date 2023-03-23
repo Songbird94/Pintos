@@ -5,6 +5,11 @@
 #include "lib/kernel/list.h"
 #include <stdint.h>
 
+#include "threads/synch.h"
+
+typedef char lock_t;
+typedef char sema_t;
+
 // At most 8MB can be allocated to the stack
 // These defines will be used in Project 2: Multithreading
 #define MAX_STACK_PAGES (1 << 11)
@@ -26,6 +31,22 @@ struct file_desc_entry {
   struct list_elem elem;
 };
 
+/* An entry that stores the mapping between the lock_t that users interact with
+   and the actual lock struct. Added for Project 2. */
+struct user_lock_entry {
+  lock_t user_lock_id; // Unique char representing a lock for a user.
+  struct lock lock; // The actual lock struct (hidden from the user).
+  struct list_elem elem; // Compatibility with Pintos lists.
+};
+
+/* An entry that stores the mapping between the lock_t that users interact with
+   and the actual lock struct. Added for Project 2. */
+struct user_sema_entry {
+  sema_t user_sema_id; // Unique char representing a sema for a user.
+  struct semaphore sema; // The actual sema struct (hidden from the user).
+  struct list_elem elem; // Compatibility with Pintos lists.
+};
+
 /* The process control block for a given process. Since
    there can be multiple threads per process, we need a separate
    PCB from the TCB. All TCBs in a process will have a pointer
@@ -40,6 +61,11 @@ struct process {
   struct list file_desc_entry_list; /* File descriptor table for this process. */
   int next_available_fd; /* Next available file descriptor for easy assignment when opening new files. */
   struct file *exec; /* Pointer to the current file being executed. */
+
+  /* Added by Jimmy for Project 2. */
+  struct list user_locks;
+  struct list user_semaphores;
+  struct lock syscall_lock;
 };
 
 void userprog_init(void);
