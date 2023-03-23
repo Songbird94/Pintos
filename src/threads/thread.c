@@ -259,6 +259,7 @@ static void thread_enqueue(struct thread* t) {
   ASSERT(intr_get_level() == INTR_OFF);
   ASSERT(is_thread(t));
 
+  /* TODO: add if schedule policy == SCHED_PRIO --> push thread to PRIO's ready list*/
   if (active_sched_policy == SCHED_FIFO)
     list_push_back(&fifo_ready_list, &t->elem);
   else
