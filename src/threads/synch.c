@@ -169,9 +169,9 @@ static void donate(struct thread* holder, int prio) {
   if (holder->effective_priority < prio) {
     holder->effective_priority = prio;
   }
-  // if (holder->donated_to != NULL) {
-  //   donate(holder->donated_to, prio);
-  // }
+  if (holder->donated_to != NULL) {
+    donate(holder->donated_to, prio);
+  }
 }
 
 /* Acquires LOCK, sleeping until it becomes available if
@@ -207,7 +207,7 @@ void lock_acquire(struct lock* lock) {
   sema_down(&lock->semaphore);
 
   old_level = intr_disable();
-  //after successfully, acquiring the lock, reove myself from donors list
+  //after successfully, acquiring the lock, remove myself from donors list
   int new_max_prio = -1;
   struct thread* new_donor = NULL;
   struct thread *donee = current_thread->donated_to;
@@ -230,6 +230,7 @@ void lock_acquire(struct lock* lock) {
     } else {
       donee->effective_priority = donee->priority;
     }
+    current_thread->donated_to = NULL;
   }
   
   lock->holder = thread_current();
@@ -262,6 +263,27 @@ bool lock_try_acquire(struct lock* lock) {
 void lock_release(struct lock* lock) {
   ASSERT(lock != NULL);
   ASSERT(lock_held_by_current_thread(lock));
+  // Proj2
+  enum intr_level old_level = intr_disable();
+  struct thread *current_thread = thread_current();
+  if (!list_empty(&current_thread->donors)) {
+    struct list_elem *e = list_begin(&current_thread->donors);
+    int new_prio = current_thread->priority;
+    while (e != list_end(&current_thread->donors)) {
+      struct thread* t = list_entry(e, struct thread, donors_list_elem);
+      if (t->lock == lock) {
+        // remove threads waiting for this lock from my donors list
+        list_remove(&current_thread->donors_list_elem);
+      } else if (t->effective_priority > new_prio) {
+        // look for the next max donated priority
+        new_prio = t->effective_priority;
+      }
+      e = list_next(e);
+    }
+    current_thread->effective_priority = new_prio;
+  }
+  
+  intr_set_level(old_level);
 
   lock->holder = NULL;
   sema_up(&lock->semaphore);
