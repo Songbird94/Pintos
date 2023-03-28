@@ -32,6 +32,9 @@
    that are ready to run but not actually running. */
 static struct list fifo_ready_list;
 
+/* Proj2: list of processes in THREAD_READY state for strict priority scheduler */
+static struct list prio_ready_list;
+
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
@@ -133,7 +136,18 @@ void thread_init(void) {
   ASSERT(intr_get_level() == INTR_OFF);
 
   lock_init(&tid_lock);
-  list_init(&fifo_ready_list);
+  /* Proj2 ready list for scheduler */
+  switch (active_sched_policy) {
+    case SCHED_FIFO:
+      list_init(&fifo_ready_list);
+      break;
+    case SCHED_PRIO:
+      list_init(&prio_ready_list);
+      break;
+    default:
+      break;
+  }
+  //list_init(&fifo_ready_list);
   list_init(&all_list);
 
   list_init(&sleeping_thread_list); // Added by Jimmy for Project 2. Initializes the sleeping_thread_list for timer interrupts.
@@ -284,10 +298,18 @@ static void thread_enqueue(struct thread* t) {
   ASSERT(intr_get_level() == INTR_OFF);
   ASSERT(is_thread(t));
 
-  if (active_sched_policy == SCHED_FIFO)
-    list_push_back(&fifo_ready_list, &t->elem);
-  else
-    PANIC("Unimplemented scheduling policy value: %d", active_sched_policy);
+  /* Proj2 added SCHED_PRIO */
+  switch (active_sched_policy) {
+    case SCHED_FIFO:
+      list_push_back(&fifo_ready_list, &t->elem);
+      break;
+    case SCHED_PRIO:
+      list_push_back(&prio_ready_list, &t->ready_queue_elem);
+      break;
+    default:
+      PANIC("Unimplemented scheduling policy value: %d", active_sched_policy);
+      break;
+  }
 }
 
 /* Transitions a blocked thread T to the ready-to-run state.
@@ -380,10 +402,26 @@ void thread_foreach(thread_action_func* func, void* aux) {
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
-void thread_set_priority(int new_priority) { thread_current()->priority = new_priority; }
+void thread_set_priority(int new_priority) {
+  /* Proj2 modified */
+  struct thread* curr = thread_current();
+  int old_prio = curr->priority;
+  curr->priority = new_priority; // Set base priority
+
+  if (old_prio > new_priority) {
+    thread_yield();
+  }
+
+  if (list_empty(&curr->donors) || new_priority > curr->effective_priority) {
+    curr->effective_priority = new_priority;
+  }
+}
 
 /* Returns the current thread's priority. */
-int thread_get_priority(void) { return thread_current()->priority; }
+int thread_get_priority(void) { 
+  /* Proj2 modified to return the effective priority */
+  return thread_current()->effective_priority; 
+}
 
 /* Sets the current thread's nice value to NICE. */
 void thread_set_nice(int nice UNUSED) { /* Not yet implemented. */
@@ -485,6 +523,12 @@ static void init_thread(struct thread* t, const char* name, int priority) {
 
   t->wakeup_time = 0; // Added by Jimmy. Initialize wakeup_time to be 0.
 
+  /* Proj2 Priority Scheduler initialization */
+  t->effective_priority = priority;
+  t->donated_to = NULL;
+  list_init(&t->donors);
+  lock_init(&t->change_priority_lock);
+
   if (t==initial_thread){
     t->parent=NULL;
   }else{
@@ -518,9 +562,22 @@ static struct thread* thread_schedule_fifo(void) {
     return idle_thread;
 }
 
-/* Strict priority scheduler */
+/* Proj2 Strict priority scheduler */
 static struct thread* thread_schedule_prio(void) {
-  PANIC("Unimplemented scheduler policy: \"-sched=prio\"");
+  struct thread* sched_thread = NULL;
+  struct list_elem* e;
+  int max_priority = -1;
+  for (e = list_begin(&prio_ready_list); e != list_end(&prio_ready_list); e = list_next(e)) {
+    struct thread* t = list_entry(e, struct thread, ready_queue_elem);
+    if (t->effective_priority > max_priority) {
+      sched_thread = t;
+      max_priority = t->effective_priority;
+    }
+  }
+  if (sched_thread == NULL) {
+    return idle_thread;
+  }
+  return sched_thread;
 }
 
 /* Fair priority scheduler */
