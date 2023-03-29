@@ -93,6 +93,15 @@ struct thread {
   /* Shared between thread.c and synch.c. */
   struct list_elem elem; /* List element. */
 
+  /* For Proj2 priority scheduler*/
+  int effective_priority;
+  struct list donors; /* List of donor threads that donate priority to this thread. */
+  struct thread* donated_to; /* The thread holding the lock this thread is waiting on. */
+  struct lock change_priority_lock; // do we need it?
+  struct list_elem ready_queue_elem;
+  struct list_elem donors_list_elem;
+
+
 #ifdef USERPROG
   /* Owned by process.c. */
   struct process* pcb; /* Process control block if this thread is a userprog */
