@@ -34,7 +34,7 @@ struct file_desc_entry {
 /* An entry that stores the mapping between the lock_t that users interact with
    and the actual lock struct. Added for Project 2. */
 struct user_lock_entry {
-  lock_t user_lock_id; // Unique char representing a lock for a user.
+  lock_t *user_lock_id; // Unique char representing a lock for a user.
   struct lock lock; // The actual lock struct (hidden from the user).
   struct list_elem elem; // Compatibility with Pintos lists.
 };
@@ -42,7 +42,7 @@ struct user_lock_entry {
 /* An entry that stores the mapping between the lock_t that users interact with
    and the actual lock struct. Added for Project 2. */
 struct user_sema_entry {
-  sema_t user_sema_id; // Unique char representing a sema for a user.
+  sema_t *user_sema_id; // Unique char representing a sema for a user.
   struct semaphore sema; // The actual sema struct (hidden from the user).
   struct list_elem elem; // Compatibility with Pintos lists.
 };
