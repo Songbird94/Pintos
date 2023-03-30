@@ -307,11 +307,18 @@ static void thread_enqueue(struct thread* t) {
   ASSERT(intr_get_level() == INTR_OFF);
   ASSERT(is_thread(t));
 
-  /* TODO: add if schedule policy == SCHED_PRIO --> push thread to PRIO's ready list*/
-  if (active_sched_policy == SCHED_FIFO)
-    list_push_back(&fifo_ready_list, &t->elem);
-  else
-    PANIC("Unimplemented scheduling policy value: %d", active_sched_policy);
+  /* Proj2 added SCHED_PRIO */
+  switch (active_sched_policy) {
+    case SCHED_FIFO:
+      list_push_back(&fifo_ready_list, &t->elem);
+      break;
+    case SCHED_PRIO:
+      list_push_back(&prio_ready_list, &t->ready_queue_elem);
+      break;
+    default:
+      PANIC("Unimplemented scheduling policy value: %d", active_sched_policy);
+      break;
+  }
 }
 
 /* Transitions a blocked thread T to the ready-to-run state.
