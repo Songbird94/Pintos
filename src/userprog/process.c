@@ -65,8 +65,21 @@ pid_t process_execute(const char* file_name) {
     return TID_ERROR;
   strlcpy(fn_copy, file_name, PGSIZE);
 
-  /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
+  /* Project 1 Modification: <file_name> string may contain command line arguments.
+  Need to parse out just the name of the thread. ("args-single" test)*/
+  char* rest; 
+  size_t len = strlen(file_name);
+  char filename_copy[len + 1];
+  strlcpy(filename_copy, file_name, len + 1);
+  char* extracted_name = strtok_r(filename_copy, " ", &rest);
+  /* This parsing used to be in thread_create(), moved here in project 2, since process_execute
+  is only called when executing a user program, so <file_name> string contains cmdline args,
+  but thread_create is can also be called by tests. */ 
+
+  /* Create a new thread to execute FILE_NAME. 
+  Note: newly created thread will run <start_process> function with argument <fn_copy>,
+  a copy of the command line input string. (This is again parsed in start_process --> load )*/
+  tid = thread_create(extracted_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page(fn_copy);
   
