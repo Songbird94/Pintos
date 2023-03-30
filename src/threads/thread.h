@@ -97,9 +97,13 @@ struct thread {
   int effective_priority;
   struct list donors; /* List of donor threads that donate priority to this thread. */
   struct thread* donated_to; /* The thread holding the lock this thread is waiting on. */
+  struct lock* waiting_on;   /* Pointer to the lock that this thread is waiting on. */
   struct lock change_priority_lock; // do we need it?
-  struct list_elem ready_queue_elem;
-  struct list_elem donors_list_elem;
+  struct list_elem ready_queue_elem; /* List elem for appending this thread to ready list*/
+  struct list_elem donors_list_elem; /* List elem for appending THIS thread to ANOTHER's list of donors*/
+
+  //struct list_elem cond_waiters_elem;    /* List elem for appending this thread to a cond var's list of waiters. */
+  struct list_elem sema_elem;           /* List elem for appending this thread to a semaphore's waiters list. */
 
 
 #ifdef USERPROG

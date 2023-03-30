@@ -233,18 +233,13 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
   if (t == NULL)
     return TID_ERROR;
 
-  /* Initialize thread. The thread's name is assigned to <name>. 
-  But <name> contains the command line arguments, so need to parse it.
-  The input argument for function=start_process is passed via AUX,
+  /* Proj1 Note: The input argument for function=start_process is passed via AUX,
   so the original full command line string is passed into start_process. */
+  /* when executing a new user process (program), start_process(filename) --> calls thread_create,
+  with the actual file name parsed out. */
 
-  char* rest; 
-  size_t len = strlen(name);
-  char input_str[len + 1];
-  strlcpy(input_str, name, len + 1);
-  char* token = strtok_r(input_str, " ", &rest);    // name string will be modified
-
-  init_thread(t, token, priority);
+  /* init_thread will initialized the thread struct, setting the priority. */
+  init_thread(t, name, priority);
   tid = t->tid = allocate_tid();
 
   /** Initialize the child status struct. */
@@ -272,6 +267,20 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
 
   /* Add to run queue. */
   thread_unblock(t);
+
+  /* Added for Proj2: priority scheduler */
+  /* Call thread_yield, if the newly created_thread has a higher priority. This ensures that a newly created thread will run,
+  and start executing it's thread start function immediately, if it has the highest priority, allows priority-donate-one etc.
+  tests to pass. */
+  if (t->effective_priority > thread_current()->effective_priority) {
+    /* According to Ed post #510cba, if we are calling from external interrupt (indicated by intr_context()),
+    then we need to use intr_yield_on_return(). However, thread_create cannot be called from interrupt handler,
+    so no special case for that */
+    // if (!intr_context()) {
+    //   thread_yield();
+    // }
+    thread_yield();
+  }
 
   return tid;
 }
@@ -394,20 +403,36 @@ void thread_foreach(thread_action_func* func, void* aux) {
   }
 }
 
-/* Sets the current thread's priority to NEW_PRIORITY. */
+/* Sets the current thread's priority to NEW_PRIORITY. 
+Proj2: 1) First, update the base priority to NEW_PRIORITY. 
+       2) Then, update the effective priority by:
+                new effective priority = max{NEW_priority, donor's priority for each donor}.
+       3) Yield if neccessary. */
 void thread_set_priority(int new_priority) {
-  /* Proj2 modified */
-  struct thread* curr = thread_current();
-  int old_prio = curr->priority;
-  curr->priority = new_priority; // Set base priority
+  struct thread* curr_thread = thread_current();
+  int old_effective_prio = curr_thread->effective_priority;
 
-  if (old_prio > new_priority) {
+  /* Update base priority */
+  curr_thread->priority = new_priority; 
+
+  /* For setting the new effective priority, iterate through list of donors to find the highest
+  donor thread effective priority. Then, set this thread's effective priority to max(new_prio, max donor prio) */
+  struct list_elem* e;
+  int new_effective_prio = new_priority;
+  for (e = list_begin(&curr_thread->donors); e != list_end(&curr_thread->donors); e = list_next(e)) {
+    struct thread* t = list_entry(e, struct thread, donors_list_elem);
+    if (t->effective_priority > new_effective_prio) {
+      new_effective_prio = t->effective_priority;
+    }
+  }
+
+  curr_thread->effective_priority = new_effective_prio;
+
+  /* If the effective priority of this thread was decreased, yield the CPU. */
+  if (new_effective_prio < old_effective_prio) {
     thread_yield();
   }
 
-  if (list_empty(&curr->donors) || new_priority > curr->effective_priority) {
-    curr->effective_priority = new_priority;
-  }
 }
 
 /* Returns the current thread's priority. */
@@ -560,6 +585,9 @@ static struct thread* thread_schedule_prio(void) {
   struct thread* sched_thread = NULL;
   struct list_elem* e;
   int max_priority = -1;
+  if (list_empty(&prio_ready_list)) {
+    return idle_thread;
+  }
   for (e = list_begin(&prio_ready_list); e != list_end(&prio_ready_list); e = list_next(e)) {
     struct thread* t = list_entry(e, struct thread, ready_queue_elem);
     if (t->effective_priority > max_priority) {
@@ -570,6 +598,7 @@ static struct thread* thread_schedule_prio(void) {
   if (sched_thread == NULL) {
     return idle_thread;
   }
+  list_remove(&sched_thread->ready_queue_elem);
   return sched_thread;
 }
 
