@@ -118,8 +118,6 @@ static void start_process(void* file_name_) {
 
     list_init(&t->pcb->file_desc_entry_list); /* Need to initialize the Pintos list representing the file table.*/
     t->pcb->next_available_fd = 2; /* fds 0 and 1 are reserved for STDIN an STDOUT respectively.  */
-
-
     list_init(&t->pcb->user_locks); /* Need to initialize the user locks Pintos list. */
     list_init(&t->pcb->user_semaphores); /* Need to initialize the user semaphores Pintos list. */
     lock_init(&t->pcb->syscall_lock);
