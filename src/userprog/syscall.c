@@ -38,9 +38,9 @@ static void syscall_lock_release(uint32_t *args UNUSED, uint32_t *eax UNUSED);
 static void syscall_sema_init(uint32_t *args UNUSED, uint32_t *eax UNUSED);
 static void syscall_sema_up(uint32_t *args UNUSED, uint32_t *eax UNUSED);
 static void syscall_sema_down(uint32_t *args UNUSED, uint32_t *eax UNUSED);
-static void syscall_pthread_create(uint32_t *args UNUSED, uint32_t *eax UNUSED);
+static tid_t syscall_pthread_create(uint32_t *args UNUSED);
 static void syscall_pthread_exit(uint32_t *args UNUSED, uint32_t *eax UNUSED);
-static void syscall_pthread_join(uint32_t *args UNUSED, uint32_t *eax UNUSED);
+static tid_t syscall_pthread_join(uint32_t *args UNUSED);
 
 struct file_desc_entry *find_entry_by_fd(int fd);
 static void find_next_available_fd(void);
@@ -133,10 +133,10 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       syscall_practice(args,&f->eax);
       break;
     case SYS_PT_CREATE:
-      syscall_pthread_create(args,&f->eax);
+      f->eax = syscall_pthread_create(args);
       break;
     case SYS_PT_JOIN:
-      syscall_pthread_join(args,&f->eax);
+      f->eax = syscall_pthread_join(args);
       break;
     case SYS_PT_EXIT:
       syscall_pthread_exit(args,&f->eax);
@@ -652,12 +652,12 @@ void sys_sema_down(sema_t* sema) {
   }
 }
 
-static void syscall_pthread_create(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
-  eax = pthread_execute((stub_fun)args[1], (pthread_fun)args[2], (void*)args[3]);
+static tid_t syscall_pthread_create(uint32_t *args UNUSED) {
+  return pthread_execute((stub_fun)args[1], (pthread_fun)args[2], (void*)args[3]);
 }
 
-static void syscall_pthread_join(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
-  eax = pthread_join((tid_t)args[1]);
+static tid_t syscall_pthread_join(uint32_t *args UNUSED) {
+  return pthread_join((tid_t)args[1]);
 }
 
 static void syscall_pthread_exit(uint32_t *args UNUSED, uint32_t *eax UNUSED) {

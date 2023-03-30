@@ -66,6 +66,17 @@ struct process {
   struct list user_locks;
   struct list user_semaphores;
   struct lock syscall_lock;
+
+  /* Added by Fanjia for Project 2.*/
+  struct list process_threads;
+};
+
+struct process_thread {
+  struct list_elem process_thread_elem;
+  struct semaphore exit_wait; // semaphore for waiting of thread exit
+  tid_t tid;
+  struct thread* thread_waiter; // pointer to the thread that waits on this process_thread (via join)
+  bool thread_exited; // indicates that thread has exited
 };
 
 void userprog_init(void);
