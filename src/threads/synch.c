@@ -130,7 +130,10 @@ void sema_up(struct semaphore* sema) {
       intr_set_level(old_level);
       /* After sema_up, if the woken up thread has higher priority --> the current thread that called sema_up must yield 
       However, need to check if currently in external exception (context switch?), before yielding. */
-      if (!intr_context()) {
+      /* According to Ed post #510cba, if we are calling from external interrupt, need to use intr_yield_on_return(). */
+      if (intr_context()) {
+        intr_yield_on_return();
+      } else {
         thread_yield();
       }
       return;
@@ -420,6 +423,10 @@ void cond_wait(struct condition* cond, struct lock* lock) {
   ASSERT(!intr_context());
   ASSERT(lock_held_by_current_thread(lock));
 
+  /* The condition variable's list of waiters are implemented as a list of semaphores, one for each waiting thread. 
+  When a thread calls cond_wait --> creates a semaphore for that thread --> appends semaphore to cond's waiters list
+  and calls sema_down to put thread to sleep, until someone calls cond_signal, which picks a thread's semaphore for 
+  waiter's list and calls sema_up. */
   sema_init(&waiter.semaphore, 0);
   list_push_back(&cond->waiters, &waiter.elem);
   lock_release(lock);
@@ -440,8 +447,35 @@ void cond_signal(struct condition* cond, struct lock* lock UNUSED) {
   ASSERT(!intr_context());
   ASSERT(lock_held_by_current_thread(lock));
 
-  if (!list_empty(&cond->waiters))
-    sema_up(&list_entry(list_pop_front(&cond->waiters), struct semaphore_elem, elem)->semaphore);
+  /* Project 2 modifications: condition variables signaling wakes up highest priority thread. 
+  Note: condition variable's list of waiters are implemented as a list of semaphores, one for each waiting thread. 
+  So we want to iterate through the list of waiting semaphores, extract the waiting thread that is sleeping on this semaphore,
+  and check that thread's priority. */
+  if (!list_empty(&cond->waiters)) {
+    // Original: sema_up(&list_entry(list_pop_front(&cond->waiters), struct semaphore_elem, elem)->semaphore);
+    struct semaphore_elem* chosen_sema_elem;
+    struct list_elem* e;
+    int max_prio = -1;
+    for (e = list_begin(&cond->waiters); e != list_end(&cond->waiters); e = list_next(e)) {
+      /* Each entry of cond->waiters is a semaphore_elem = {struct list_elem, struct semaphore}*/
+      struct semaphore_elem* sema_elem = list_entry(e, struct semaphore_elem, elem);
+      /* Extract the semaphore struct from semaphore_elem. */
+      struct semaphore* sema = &sema_elem->semaphore;
+      /* Since each waiting thread created it's own semaphore, and called sema_down on it, that thread
+      should be the only sleeping thread on that semaphore's list of waiters. */ 
+      struct thread* t = list_entry(list_begin(&sema->waiters), struct thread, sema_elem);
+      /* Compare waiting thread's priority. */
+      if (t->effective_priority > max_prio) {
+        max_prio = t->effective_priority;
+        chosen_sema_elem = sema_elem;
+      }
+    }
+
+    /* Remove the chosen semaphore (representing the chosen waiting thread) from cond's waiters list */
+    list_remove(&chosen_sema_elem->elem);
+    /* Calls sema_up on the chosen semaphore from cond's waiters list, to wake up the chosen waiting thread. */
+    sema_up(&chosen_sema_elem->semaphore);
+  }
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by

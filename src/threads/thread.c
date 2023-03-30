@@ -273,9 +273,13 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
   and start executing it's thread start function immediately, if it has the highest priority, allows priority-donate-one etc.
   tests to pass. */
   if (t->effective_priority > thread_current()->effective_priority) {
-    if (!intr_context()) {
-      thread_yield();
-    }
+    /* According to Ed post #510cba, if we are calling from external interrupt (indicated by intr_context()),
+    then we need to use intr_yield_on_return(). However, thread_create cannot be called from interrupt handler,
+    so no special case for that */
+    // if (!intr_context()) {
+    //   thread_yield();
+    // }
+    thread_yield();
   }
 
   return tid;
