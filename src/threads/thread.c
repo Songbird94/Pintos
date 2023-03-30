@@ -406,20 +406,36 @@ void thread_foreach(thread_action_func* func, void* aux) {
   }
 }
 
-/* Sets the current thread's priority to NEW_PRIORITY. */
+/* Sets the current thread's priority to NEW_PRIORITY. 
+Proj2: 1) First, update the base priority to NEW_PRIORITY. 
+       2) Then, update the effective priority by:
+                new effective priority = max{NEW_priority, donor's priority for each donor}.
+       3) Yield if neccessary. */
 void thread_set_priority(int new_priority) {
-  /* Proj2 modified */
-  struct thread* curr = thread_current();
-  int old_prio = curr->priority;
-  curr->priority = new_priority; // Set base priority
+  struct thread* curr_thread = thread_current();
+  int old_effective_prio = curr_thread->effective_priority;
 
-  if (old_prio > new_priority) {
+  /* Update base priority */
+  curr_thread->priority = new_priority; 
+
+  /* For setting the new effective priority, iterate through list of donors to find the highest
+  donor thread effective priority. Then, set this thread's effective priority to max(new_prio, max donor prio) */
+  struct list_elem* e;
+  int new_effective_prio = new_priority;
+  for (e = list_begin(&curr_thread->donors); e != list_end(&curr_thread->donors); e = list_next(e)) {
+    struct thread* t = list_entry(e, struct thread, donors_list_elem);
+    if (t->effective_priority > new_effective_prio) {
+      new_effective_prio = t->effective_priority;
+    }
+  }
+
+  curr_thread->effective_priority = new_effective_prio;
+
+  /* If the effective priority of this thread was decreased, yield the CPU. */
+  if (new_effective_prio < old_effective_prio) {
     thread_yield();
   }
 
-  if (list_empty(&curr->donors) || new_priority > curr->effective_priority) {
-    curr->effective_priority = new_priority;
-  }
 }
 
 /* Returns the current thread's priority. */
