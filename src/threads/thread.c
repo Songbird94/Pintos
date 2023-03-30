@@ -274,8 +274,10 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
   /* Add to run queue. */
   thread_unblock(t);
 
-  /* Added for Proj2: priority scheduler 
-  Call thread_yield, if the newly created_thread has a higher priority. */
+  /* Added for Proj2: priority scheduler */
+  /* Call thread_yield, if the newly created_thread has a higher priority. This ensures that a newly created thread will run,
+  and start executing it's thread start function immediately, if it has the highest priority, allows priority-donate-one etc.
+  tests to pass. */
   if (t->effective_priority > thread_current()->effective_priority) {
     if (!intr_context()) {
       thread_yield();

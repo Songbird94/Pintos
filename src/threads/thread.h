@@ -185,11 +185,6 @@ int thread_get_recent_cpu(void);
 int thread_get_load_avg(void);
 
 /* ======================================================================================= */
-/*        Function signatures for new functions added for Project 2. (Prio Sched).       */
-/* ======================================================================================= */
-//static void schedule(void);
-
-/* ======================================================================================= */
 /*        Function signatures for new functions added for Project 2. Added by Jimmy.       */
 /* ======================================================================================= */
 

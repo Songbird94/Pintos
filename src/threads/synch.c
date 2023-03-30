@@ -111,6 +111,8 @@ void sema_up(struct semaphore* sema) {
     // (then, the scheduler picks which thread to put on the CPU from the ready queue)
 
     // Assuming active_sched_policy == SCHED_PRIO
+    /* When choosing which waiting thread to wake up and be added to ready queue, iterate through
+    sema's list of waiters and pikc the thread with the highest priority to add to ready queue. */
     int highest_prio = -1;
     struct thread* chosen_thread;
     for (struct list_elem* e = list_begin(&sema->waiters); e != list_end(&sema->waiters); e = list_next(e)) {
@@ -240,36 +242,11 @@ void lock_acquire(struct lock* lock) {
   sema_down(&lock->semaphore);
   // original
 
-  //old_level = intr_disable();
-  //after successfully, acquiring the lock, remove myself from donors list
-  // int new_max_prio = -1;
-  // struct thread* new_donor = NULL;
-  // struct thread *donee = current_thread->donated_to;
-  // if (donee != NULL) {
-  //   struct list_elem *e = list_begin(&donee->donors);
-  //   while (e != list_end(&donee->donors)) {
-  //     struct thread* t = list_entry(e, struct thread, donors_list_elem);
-  //     if (t == current_thread) {
-  //       list_remove(&current_thread->donors_list_elem);
-  //       break;
-  //     } else if (t->effective_priority > new_max_prio) {
-  //       new_donor = t;
-  //       new_max_prio = t->effective_priority;
-  //     }
-  //     e = list_next(e);
-  //   }
-
-  //   if (new_max_prio > 0) {
-  //     donee->effective_priority = new_max_prio;
-  //   } else {
-  //     donee->effective_priority = donee->priority;
-  //   }
-  //   current_thread->donated_to = NULL;
-  // }
-  
-  // current_thread->donated_to = NULL;
-  // current_thread->waiting_on = NULL;
-  // intr_set_level(old_level);
+  /* After I successfully acquire the lock (woken up from sema_down), update my donate_to and waiting_on to NULL*/
+  old_level = intr_disable();
+  current_thread->donated_to = NULL;
+  current_thread->waiting_on = NULL;
+  intr_set_level(old_level);
 
   // original
   lock->holder = thread_current();
@@ -301,30 +278,26 @@ bool lock_try_acquire(struct lock* lock) {
 void lock_release(struct lock* lock) {
   ASSERT(lock != NULL);
   ASSERT(lock_held_by_current_thread(lock));
-  // Proj2
+  /* Project 2: priority scheduler.*/
   enum intr_level old_level = intr_disable();
   struct thread *current_thread = thread_current();
   if (!list_empty(&current_thread->donors)) {
+    /* When I release a lock, through my list of donors. If a donor is waiting on this lock that I'm releasing,
+    remove the donor. Else, if the donor is waiting on another, keep that donor's donation. */
     struct list_elem *e = list_begin(&current_thread->donors);
+    // Initially, my new priority will be my based priority. If I still have donors who are waiting on another
+    // lock that I hold, update my priority to that donor's donation.
     int new_prio = current_thread->priority;
     while (e != list_end(&current_thread->donors)) {
       struct thread* t = list_entry(e, struct thread, donors_list_elem);
-      // if (t->lock == lock) {
-      //   // remove threads waiting for this lock from my donors list
-      //   list_remove(&current_thread->donors_list_elem);
-      // } else if (t->effective_priority > new_prio) {
-      //   // look for the next max donated priority
-      //   new_prio = t->effective_priority;
-      // }
-
       if (t->waiting_on == lock) {
         // remove threads waiting for this lock from my donors list
         list_remove(&t->donors_list_elem);
+        // CHECK: need to update donor thread's donate_to and waiting_on to NULL?
       } else if (t->effective_priority > new_prio) {
         // look for the next max donated priority
         new_prio = t->effective_priority;
       }
-
       e = list_next(e);
     }
     current_thread->effective_priority = new_prio;
