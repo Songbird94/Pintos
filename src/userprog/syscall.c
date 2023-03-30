@@ -51,12 +51,12 @@ void seek(int fd, unsigned position);
 unsigned tell(int fd);
 int close(int fd);
 int sys_compute_e(int n);
-bool sys_lock_init(lock_t* lock);
-void sys_lock_acquire(lock_t* lock);
-void sys_lock_release(lock_t* lock);
-bool sys_sema_init(lock_t* lock, int val);
-void sys_sema_up(sema_t* sema);
-void sys_sema_down(sema_t* sema);
+int sys_lock_init(lock_t* lock);
+int sys_lock_acquire(lock_t* lock);
+int sys_lock_release(lock_t* lock);
+int sys_sema_init(lock_t* lock, int val);
+int sys_sema_up(sema_t* sema);
+int sys_sema_down(sema_t* sema);
 
 struct lock file_global_lock; /* Global file lock. Added by Jimmy. */
 
@@ -186,6 +186,15 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     case SYS_LOCK_RELEASE:
       syscall_lock_release(args, &f->eax);
       break;
+    case SYS_SEMA_INIT:
+      syscall_sema_init(args, &f->eax);
+      break;
+    case SYS_SEMA_UP:
+      syscall_sema_up(args, &f->eax);
+      break;
+    case SYS_SEMA_DOWN:
+      syscall_sema_down(args, &f->eax);
+      break;
     default:
       syscall_exit(args, &f->eax);
   }
@@ -268,7 +277,6 @@ static void syscall_exec(uint32_t *args UNUSED, uint32_t *eax UNUSED){
   *eax = process_execute((char*) args[1]);
   lock_release(&file_global_lock);
 }
-
 
 static void syscall_wait(uint32_t *args UNUSED, uint32_t *eax UNUSED){
   if (!validate_syscall_arg(args,1)){
@@ -385,12 +393,12 @@ static void syscall_close(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
 }
 
 static void syscall_lock_init(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
-  if (!validate_syscall_arg(args, 2) || args[1] == NULL) {
+  if (!validate_syscall_arg(args, 2)) {
     args[1] = -1;
     syscall_exit(args, eax);
     return;
   }
-  *eax = sys_lock_init((char) args[1]);
+  *eax = sys_lock_init((lock_t *) args[1]);
 }
 
 static void syscall_lock_acquire(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
@@ -399,7 +407,7 @@ static void syscall_lock_acquire(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
     syscall_exit(args, eax);
     return;
   }
-  sys_lock_acquire((char) args[1]);
+  *eax = sys_lock_acquire((lock_t *) args[1]);
 }
 
 static void syscall_lock_release(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
@@ -408,16 +416,16 @@ static void syscall_lock_release(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
     syscall_exit(args, eax);
     return;
   }
-  sys_lock_release((char) args[1]);
+  *eax = sys_lock_release((lock_t *) args[1]);
 }
 
 static void syscall_sema_init(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
-  if (!validate_syscall_arg(args, 3) || args[1] == NULL) {
+  if (!validate_syscall_arg(args, 3)) {
     args[1] = -1;
     syscall_exit(args, eax);
     return;
   }
-  *eax = sys_sema_init((char) args[1], (int) args[2]);
+  *eax = sys_sema_init((sema_t*) args[1], (int) args[2]);
 }
 
 static void syscall_sema_up(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
@@ -426,7 +434,7 @@ static void syscall_sema_up(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
     syscall_exit(args, eax);
     return;
   }
-  sys_sema_up((char) args[1]);
+  *eax = sys_sema_up((sema_t*) args[1]);
 }
 
 static void syscall_sema_down(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
@@ -435,7 +443,7 @@ static void syscall_sema_down(uint32_t *args UNUSED, uint32_t *eax UNUSED) {
     syscall_exit(args, eax);
     return;
   }
-  sys_sema_down((char) args[1]);
+  *eax = sys_sema_down((sema_t*) args[1]);
 }
 
 
@@ -574,70 +582,85 @@ int close(int fd) {
 }
 
 /* Initializes a user lock by creating a new user_lock_entry and adding to the PCB list. */
-bool sys_lock_init(lock_t* lock) {
+int sys_lock_init(lock_t* lock) {
+  if (lock == NULL) {
+    return 0;
+  }
   struct user_lock_entry *new_user_lock = malloc(sizeof(struct user_lock_entry));
   if (new_user_lock == NULL) {
-    return false;
+    return 0;
   }
   new_user_lock->user_lock_id = lock;
   lock_init(&new_user_lock->lock);
   list_push_back(&thread_current()->pcb->user_locks, &new_user_lock->elem);
-  return true;
+  return 1;
 }
 
 /* Attempts to acquire a user lock. */
-void sys_lock_acquire(lock_t *lock) {
+int sys_lock_acquire(lock_t *lock) {
   struct list_elem *e;
   for (e = list_begin(&thread_current()->pcb->user_locks); e != list_end(&thread_current()->pcb->user_locks); e = list_next(e)) {
     struct user_lock_entry *entry = list_entry(e, struct user_lock_entry, elem);
-    if (entry->user_lock_id == lock) {
+    if (entry->user_lock_id == lock && !lock_held_by_current_thread(&entry->lock)) {
       lock_acquire(&entry->lock);
+      return 1;
     }
   }
+  return 0;
 }
 
 /* Attempts to release a user lock. */
-void sys_lock_release(lock_t *lock) {
+int sys_lock_release(lock_t *lock) {
   struct list_elem *e;
   for (e = list_begin(&thread_current()->pcb->user_locks); e != list_end(&thread_current()->pcb->user_locks); e = list_next(e)) {
     struct user_lock_entry *entry = list_entry(e, struct user_lock_entry, elem);
-    if (entry->user_lock_id == lock) {
+    if (entry->user_lock_id == lock && lock_held_by_current_thread(&entry->lock)) {
       lock_release(&entry->lock);
+      return 1;
     }
   }
+  return 0;
 }
 
 /* Attempts to initialize a user semaphore. */
-bool sys_sema_init(sema_t* sema, int val) {
+int sys_sema_init(sema_t* sema, int val) {
+  if (sema == NULL || val < 0) {
+    return 0;
+  }
   struct user_sema_entry *new_user_sema = malloc(sizeof(struct user_sema_entry));
   if (new_user_sema == NULL) {
-    return false;
+    return 0;
   }
   new_user_sema->user_sema_id = sema;
   sema_init(&new_user_sema->sema, val);
   list_push_back(&thread_current()->pcb->user_semaphores, &new_user_sema->elem);
+  return 1;
 }
 
 /* Attempts to raise a user semaphore's value up one value. */
-void sys_sema_up(sema_t* sema) {
+int sys_sema_up(sema_t* sema) {
   struct list_elem *e;
   for (e = list_begin(&thread_current()->pcb->user_semaphores); e != list_end(&thread_current()->pcb->user_semaphores); e = list_next(e)) {
     struct user_sema_entry *entry = list_entry(e, struct user_sema_entry, elem);
     if (entry->user_sema_id == sema) {
       sema_up(&entry->sema);
+      return 1;
     }
   }
+  return 0;
 }
 
 /* Attempts to lower a user semaphore's value down one value. */
-void sys_sema_down(sema_t* sema) {
+int sys_sema_down(sema_t* sema) {
   struct list_elem *e;
   for (e = list_begin(&thread_current()->pcb->user_semaphores); e != list_end(&thread_current()->pcb->user_semaphores); e = list_next(e)) {
     struct user_sema_entry *entry = list_entry(e, struct user_sema_entry, elem);
     if (entry->user_sema_id == sema) {
       sema_down(&entry->sema);
+      return 1;
     }
   }
+  return 0;
 }
 
 /* ======================================================================================== */
