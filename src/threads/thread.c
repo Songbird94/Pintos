@@ -244,6 +244,7 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
   strlcpy(input_str, name, len + 1);
   char* token = strtok_r(input_str, " ", &rest);    // name string will be modified
 
+  /* init_thread will initialized the thread struct, setting the priority. */
   init_thread(t, token, priority);
   tid = t->tid = allocate_tid();
 
@@ -272,6 +273,14 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
 
   /* Add to run queue. */
   thread_unblock(t);
+
+  /* Added for Proj2: priority scheduler 
+  Call thread_yield, if the newly created_thread has a higher priority. */
+  if (t->effective_priority > thread_current()->effective_priority) {
+    if (!intr_context()) {
+      thread_yield();
+    }
+  }
 
   return tid;
 }
@@ -567,6 +576,9 @@ static struct thread* thread_schedule_prio(void) {
   struct thread* sched_thread = NULL;
   struct list_elem* e;
   int max_priority = -1;
+  if (list_empty(&prio_ready_list)) {
+    return idle_thread;
+  }
   for (e = list_begin(&prio_ready_list); e != list_end(&prio_ready_list); e = list_next(e)) {
     struct thread* t = list_entry(e, struct thread, ready_queue_elem);
     if (t->effective_priority > max_priority) {
@@ -577,6 +589,7 @@ static struct thread* thread_schedule_prio(void) {
   if (sched_thread == NULL) {
     return idle_thread;
   }
+  list_remove(&sched_thread->ready_queue_elem);
   return sched_thread;
 }
 

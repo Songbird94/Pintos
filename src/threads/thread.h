@@ -97,9 +97,12 @@ struct thread {
   int effective_priority;
   struct list donors; /* List of donor threads that donate priority to this thread. */
   struct thread* donated_to; /* The thread holding the lock this thread is waiting on. */
+  struct lock* waiting_on;   /* Pointer to the lock that this thread is waiting on. */
   struct lock change_priority_lock; // do we need it?
   struct list_elem ready_queue_elem;
   struct list_elem donors_list_elem;
+
+  struct list_elem sema_elem;
 
 
 #ifdef USERPROG
@@ -180,6 +183,11 @@ int thread_get_nice(void);
 void thread_set_nice(int);
 int thread_get_recent_cpu(void);
 int thread_get_load_avg(void);
+
+/* ======================================================================================= */
+/*        Function signatures for new functions added for Project 2. (Prio Sched).       */
+/* ======================================================================================= */
+//static void schedule(void);
 
 /* ======================================================================================= */
 /*        Function signatures for new functions added for Project 2. Added by Jimmy.       */

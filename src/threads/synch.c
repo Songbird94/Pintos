@@ -63,7 +63,7 @@ void sema_down(struct semaphore* sema) {
 
   old_level = intr_disable();
   while (sema->value == 0) {
-    list_push_back(&sema->waiters, &thread_current()->elem);
+    list_push_back(&sema->waiters, &thread_current()->sema_elem);
     thread_block();
   }
   sema->value--;
@@ -102,8 +102,39 @@ void sema_up(struct semaphore* sema) {
   ASSERT(sema != NULL);
 
   old_level = intr_disable();
-  if (!list_empty(&sema->waiters))
-    thread_unblock(list_entry(list_pop_front(&sema->waiters), struct thread, elem));
+  if (!list_empty(&sema->waiters)) {
+    // Original: 
+    // if (!list_empty(&sema->waiters))
+    // thread_unblock(list_entry(list_pop_front(&sema->waiters), struct thread, elem));
+    // Note: this picks sema's waiters in FIFO order to be added to the ready_queue
+    // Note: thread_unblock --> thread_enqueue --> adds the thread to the ready_queue 
+    // (then, the scheduler picks which thread to put on the CPU from the ready queue)
+
+    // Assuming active_sched_policy == SCHED_PRIO
+    int highest_prio = -1;
+    struct thread* chosen_thread;
+    for (struct list_elem* e = list_begin(&sema->waiters); e != list_end(&sema->waiters); e = list_next(e)) {
+      struct thread* t = list_entry(e, struct thread, sema_elem);
+      if (t->effective_priority > highest_prio) {
+        highest_prio = t->effective_priority;
+        chosen_thread = t;
+      }
+    }
+    list_remove(&chosen_thread->sema_elem);
+    thread_unblock(chosen_thread);
+
+    if (chosen_thread->effective_priority > thread_current()->effective_priority) {
+      sema->value++;
+      intr_set_level(old_level);
+      /* After sema_up, if the woken up thread has higher priority --> the current thread that called sema_up must yield 
+      However, need to check if currently in external exception (context switch?), before yielding. */
+      if (!intr_context()) {
+        thread_yield();
+      }
+      return;
+    }
+  }
+
   sema->value++;
   intr_set_level(old_level);
 }
@@ -187,7 +218,7 @@ void lock_acquire(struct lock* lock) {
   ASSERT(!intr_context());
   ASSERT(!lock_held_by_current_thread(lock));
 
-  /* Proj2 */
+  /* Proj2 - Priority Donation */
   enum intr_level old_level = intr_disable();
   struct thread *current_thread = thread_current();
   struct thread *holder = lock->holder;
@@ -200,41 +231,48 @@ void lock_acquire(struct lock* lock) {
     // keep track my donated_to thread to holder
       current_thread->donated_to = holder;
     }
+    // rememeber that I'm waiting on this lock
+    current_thread->waiting_on = lock;  
   }
-  
   intr_set_level(old_level);
 
+  // Original:
   sema_down(&lock->semaphore);
+  // original
 
-  old_level = intr_disable();
+  //old_level = intr_disable();
   //after successfully, acquiring the lock, remove myself from donors list
-  int new_max_prio = -1;
-  struct thread* new_donor = NULL;
-  struct thread *donee = current_thread->donated_to;
-  if (donee != NULL) {
-    struct list_elem *e = list_begin(&donee->donors);
-    while (e != list_end(&donee->donors)) {
-      struct thread* t = list_entry(e, struct thread, donors_list_elem);
-      if (t == current_thread) {
-        list_remove(&current_thread->donors_list_elem);
-        break;
-      } else if (t->effective_priority > new_max_prio) {
-        new_donor = t;
-        new_max_prio = t->effective_priority;
-      }
-      e = list_next(e);
-    }
+  // int new_max_prio = -1;
+  // struct thread* new_donor = NULL;
+  // struct thread *donee = current_thread->donated_to;
+  // if (donee != NULL) {
+  //   struct list_elem *e = list_begin(&donee->donors);
+  //   while (e != list_end(&donee->donors)) {
+  //     struct thread* t = list_entry(e, struct thread, donors_list_elem);
+  //     if (t == current_thread) {
+  //       list_remove(&current_thread->donors_list_elem);
+  //       break;
+  //     } else if (t->effective_priority > new_max_prio) {
+  //       new_donor = t;
+  //       new_max_prio = t->effective_priority;
+  //     }
+  //     e = list_next(e);
+  //   }
 
-    if (new_max_prio > 0) {
-      donee->effective_priority = new_max_prio;
-    } else {
-      donee->effective_priority = donee->priority;
-    }
-    current_thread->donated_to = NULL;
-  }
+  //   if (new_max_prio > 0) {
+  //     donee->effective_priority = new_max_prio;
+  //   } else {
+  //     donee->effective_priority = donee->priority;
+  //   }
+  //   current_thread->donated_to = NULL;
+  // }
   
+  // current_thread->donated_to = NULL;
+  // current_thread->waiting_on = NULL;
+  // intr_set_level(old_level);
+
+  // original
   lock->holder = thread_current();
-  intr_set_level(old_level);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -271,22 +309,32 @@ void lock_release(struct lock* lock) {
     int new_prio = current_thread->priority;
     while (e != list_end(&current_thread->donors)) {
       struct thread* t = list_entry(e, struct thread, donors_list_elem);
-      if (t->lock == lock) {
+      // if (t->lock == lock) {
+      //   // remove threads waiting for this lock from my donors list
+      //   list_remove(&current_thread->donors_list_elem);
+      // } else if (t->effective_priority > new_prio) {
+      //   // look for the next max donated priority
+      //   new_prio = t->effective_priority;
+      // }
+
+      if (t->waiting_on == lock) {
         // remove threads waiting for this lock from my donors list
-        list_remove(&current_thread->donors_list_elem);
+        list_remove(&t->donors_list_elem);
       } else if (t->effective_priority > new_prio) {
         // look for the next max donated priority
         new_prio = t->effective_priority;
       }
+
       e = list_next(e);
     }
     current_thread->effective_priority = new_prio;
   }
-  
   intr_set_level(old_level);
 
+  // Original:
   lock->holder = NULL;
   sema_up(&lock->semaphore);
+  /* sema_up will call thread yield, if when this thread releases the lock and the next woken up thread has higher priority. */
 }
 
 /* Returns true if the current thread holds LOCK, false
