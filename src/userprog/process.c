@@ -751,8 +751,10 @@ static bool install_page(void* upage, void* kpage, bool writable) {
 
   /* Verify that there's not already a page at that virtual
      address, then map our page there. */
-  return (pagedir_get_page(t->pcb->pagedir, upage) == NULL &&
+  bool result = (pagedir_get_page(t->pcb->pagedir, upage) == NULL &&
           pagedir_set_page(t->pcb->pagedir, upage, kpage, writable));
+
+  return result;
 }
 
 /* Returns true if t is the main thread of the process p */
@@ -775,19 +777,37 @@ bool setup_thread(void** esp, int thread_id) {
 
   ASSERT(thread_id > 0);
 
-  int i = thread_id;
+  // int i = thread_id;
 
+  /* This allocates physical pages from user pool pf physical memory (PAL_USER) */
   kpage = palloc_get_page(PAL_USER | PAL_ZERO);
-  if (kpage != NULL) {
-    uint8_t* base = (uint8_t*)PHYS_BASE - (PGSIZE * i * 2); 
+  // if (kpage != NULL) {
+  //   /* base is a pointer in virtual address, indicating which section of virtual address space
+  //   will be mapped to the allocated physical memory.*/
+  //   uint8_t* base = (uint8_t*)PHYS_BASE - (PGSIZE * i * 2); 
 
-    // use base - PGSIZE because installation of a page goes in reverse way
-    // as opposed to stack growth
-    success = install_page(base - PGSIZE, kpage, true);
-    if (success)
-      *esp = base;
-    else
-      palloc_free_page(kpage);
+  //   // use base - PGSIZE because installation of a page goes in reverse way
+  //   // as opposed to stack growth
+  //   /* Install_page sets up the mapping from virtual address to physical address in page table. */
+  //   success = install_page(base - PGSIZE, kpage, true);
+  //   if (success)
+  //     *esp = base;    // virtual address of stck pointer --> base
+  //   else
+  //     palloc_free_page(kpage);
+  // }
+
+  for (uint8_t* vaddr = ((uint8_t*)PHYS_BASE) - PGSIZE; vaddr > 0; vaddr -= PGSIZE) {
+    success = install_page(vaddr, kpage, true);
+    if (success) {
+      *esp = vaddr + PGSIZE;
+      // uint8_t* stack_ptr = (uint8_t*) *esp;
+      // *stack_ptr = 3;
+      break;
+    }
+  }
+
+  if (!success) {
+    palloc_free_page(kpage);
   }
 
   return success;
@@ -870,14 +890,14 @@ static void start_pthread(void* args_) {
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  if_.eip = (void*)args->sf;
+  if_.eip = (void*)args->sf;      // set instruction pointer eip to stub_func 
 
-  t->pcb = args->pcb;
   lock_acquire(&process_threads_lock);
   t->process_thread_id = list_size(&args->pcb->process_threads) + 1;
   list_push_back(&args->pcb->process_threads, &process_thread->process_thread_elem);
   lock_release(&process_threads_lock);
 
+  /* Set up the stack for the newly created user pthread */
   success = setup_thread(&if_.esp,t->process_thread_id);
 
   if (!success) {
@@ -887,22 +907,28 @@ static void start_pthread(void* args_) {
     thread_exit();
   }
 
-  if_.esp = (void**)if_.esp - 1;
-  *(void**)if_.esp = NULL; // stack align
+  /* Notes: So far, we have create the thread stuct for the new user thread, and setup the user t hread's stack.
+  Now, we need to invoke the sstub function, which will call the user requested pthread function (with pthread_exit() at the end)
+  Therefore, just like process execute, we need to manually push the arguments required by stub func: <pthread func> and <args> onto the stack
+  And jump-start the execution of stub func by returning to user space via intr_exit (asm violatile). */
 
-  if_.esp = (void**)if_.esp - 1;
-  *(void**)if_.esp = args->arg; // push arg
+  uint32_t* esp = (uint32_t*) if_.esp;
 
-  if_.esp = (void**)if_.esp - 1;
-  *(void**)if_.esp = args->tf; // push tf
+  esp -= 1;
+  *esp= NULL; // stack align
+  esp -= 1;
+  *esp= NULL; // stack align
+  esp -= 1;
+  *esp = args->arg; // push arg
+  esp -= 1;
+  *esp = args->tf; // push tf
+  esp -= 1;
+  *esp = NULL; // push fake return address
 
-  if_.esp = (void**)if_.esp - 1;
-  *(void**)if_.esp = NULL; // push fake return address
+  if_.esp = (void **) esp;
 
   args->setup_failed = false;
   sema_up(&args->process_thread_setup_wait);
-
-  asm("fsave (%0);" : : "g"(&if_.fpu)); // fill in the frame with current FPU
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -923,13 +949,13 @@ static void start_pthread(void* args_) {
    now, it does nothing. */
 tid_t pthread_join(tid_t tid) {
   struct list_elem* e;
-  struct thread* cur_t = thread_current();
+  struct thread* curr_thread = thread_current();
   struct process_thread* process_thread = NULL;
 
   lock_acquire(&process_threads_lock);
 
   /** Looking for current process thread*/
-  for (e = list_begin(&cur_t->pcb->process_threads); e != list_end(&cur_t->pcb->process_threads);
+  for (e = list_begin(&curr_thread->pcb->process_threads); e != list_end(&curr_thread->pcb->process_threads);
       e = list_next(e)) {
     struct process_thread* current_process_thread =
         list_entry(e, struct process_thread, process_thread_elem);
@@ -949,10 +975,9 @@ tid_t pthread_join(tid_t tid) {
     return tid;
   }
 
-  process_thread->thread_waiter = cur_t;
+  process_thread->thread_waiter = curr_thread;
 
   lock_release(&process_threads_lock);
-
 
   sema_down(&process_thread->exit_wait);
   return tid;

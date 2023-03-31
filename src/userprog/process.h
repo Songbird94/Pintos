@@ -68,7 +68,7 @@ struct process {
   struct lock syscall_lock;
 
   /* Added by Fanjia for Project 2.*/
-  struct list process_threads;
+  struct list process_threads;    /* A list of process_thread structs */
 };
 
 struct process_thread {
