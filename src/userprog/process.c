@@ -800,8 +800,6 @@ bool setup_thread(void** esp, int thread_id) {
     success = install_page(vaddr, kpage, true);
     if (success) {
       *esp = vaddr + PGSIZE;
-      // uint8_t* stack_ptr = (uint8_t*) *esp;
-      // *stack_ptr = 3;
       break;
     }
   }
@@ -979,7 +977,14 @@ tid_t pthread_join(tid_t tid) {
 
   lock_release(&process_threads_lock);
 
+  /* Fixed deadlock: when pthread join calls sema_down to sleep and wait for target thread to exit,
+  need to release the syscall_lock, so that the target thread's pthread_exit syscall can proceed. 
+  Also, need to re-acquire syscall_lock, because in syscall_handler, after this function returns,
+  the syscall_lock is released at the end.
+  (create-simple test) */
+  lock_release(&curr_thread->pcb->syscall_lock);
   sema_down(&process_thread->exit_wait);
+  lock_acquire(&curr_thread->pcb->syscall_lock);
   return tid;
 }
 
@@ -994,17 +999,17 @@ tid_t pthread_join(tid_t tid) {
    now, it does nothing. */
 void pthread_exit(void) {
   struct list_elem* e;
-  struct thread* cur_t = thread_current();
+  struct thread* curr_thread = thread_current();
 
   struct process_thread* process_thread = NULL;
 
   lock_acquire(&process_threads_lock);
 
-  for (e = list_begin(&cur_t->pcb->process_threads); e != list_end(&cur_t->pcb->process_threads);
+  for (e = list_begin(&curr_thread->pcb->process_threads); e != list_end(&curr_thread->pcb->process_threads);
        e = list_next(e)) {
     struct process_thread* current_process_thread =
         list_entry(e, struct process_thread, process_thread_elem);
-    if (current_process_thread->tid == cur_t->tid) {
+    if (current_process_thread->tid == curr_thread->tid) {
       process_thread = current_process_thread;
       break;
     }
@@ -1016,6 +1021,10 @@ void pthread_exit(void) {
 
   lock_release(&process_threads_lock);
 
+  /* When pthread_exit finished exiting and calls sema_up to signal waiter (the thread that called join on me)
+  need to relinquish the syscall_lock, because pthread_join re-acquires syscall_lock after waking up from sema_down.
+  Since this function exists the thread and never returns, don't need to re-acquire lock. */
+  lock_release(&curr_thread->pcb->syscall_lock);
   sema_up(&process_thread->exit_wait);
 
   thread_exit();

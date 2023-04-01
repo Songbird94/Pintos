@@ -91,6 +91,9 @@ void syscall_init(void) {
 
 static void syscall_handler(struct intr_frame* f UNUSED) {
 
+  // For debug pruposes
+  struct thread* t = thread_current();
+
   lock_acquire(&thread_current()->pcb->syscall_lock);
 
   uint32_t* args = ((uint32_t*)f->esp);
